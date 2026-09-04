@@ -144,7 +144,7 @@
     <string name="action_reset">Reset</string>
     <string name="settings_section_about">About &amp; diagnostics</string>
     <string name="about_app_title">Mizuki Video Downloader</string>
-    <string name="about_version">Version 1.0</string>
+    <string name="about_version">Version 0.1</string>
     <string name="about_engine">• Engine: yt-dlp + aria2c + FFmpeg</string>
     <string name="about_free_space">• Free storage: %1$s</string>
     <string name="about_cpu">• Device CPU: %1$s</string>
