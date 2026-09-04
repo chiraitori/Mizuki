@@ -1,0 +1,148 @@
+name: Build & Release Multi-ABI APKs
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish as a GitHub Release?'
+        required: true
+        type: boolean
+        default: true
+      is_prerelease:
+        description: 'Mark as Pre-release?'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    name: Build Multi-ABI Release APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Setup Keystore from Secrets (Optional)
+        id: setup_keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Decoding release keystore from secrets..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+            echo "KEYSTORE_FILE=$(pwd)/release.keystore" >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+            echo "has_keystore=true" >> $GITHUB_OUTPUT
+          else
+            echo "No custom release keystore provided. Will use fallback signing."
+            echo "has_keystore=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Release APKs (Per-ABI & Universal)
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Organize & Rename APK Outputs
+        id: package_apks
+        run: |
+          mkdir -p dist_apks
+          
+          # Extract version from tag or gradle
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION=$(grep 'versionName' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          fi
+          echo "Building distribution for version: $VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+          # Copy and rename APKs into dist_apks
+          cd app/build/outputs/apk/release
+          for apk in *.apk; do
+            if [ -f "$apk" ]; then
+              # Identify architecture
+              if echo "$apk" | grep -qi "arm64-v8a"; then
+                ABI="arm64-v8a"
+              elif echo "$apk" | grep -qi "armeabi-v7a"; then
+                ABI="armeabi-v7a"
+              elif echo "$apk" | grep -qi "x86_64"; then
+                ABI="x86_64"
+              elif echo "$apk" | grep -qi "x86"; then
+                ABI="x86"
+              elif echo "$apk" | grep -qi "universal"; then
+                ABI="universal"
+              else
+                ABI="release"
+              fi
+              
+              TARGET="Mizuki-v${VERSION}-${ABI}.apk"
+              cp "$apk" "../../../../../dist_apks/$TARGET"
+              echo "Created dist_apks/$TARGET from $apk"
+            fi
+          done
+          
+          cd ../../../../../dist_apks
+          # Generate SHA-256 Checksums
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mizuki-Release-APKs
+          path: |
+            dist_apks/*.apk
+            dist_apks/SHA256SUMS.txt
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Mizuki v${{ env.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ github.event.inputs.is_prerelease || false }}
+          generate_release_notes: true
+          files: |
+            dist_apks/*.apk
+            dist_apks/SHA256SUMS.txt
+          body: |
+            ## Mizuki Video & Audio Downloader v${{ env.VERSION }}
+            
+            ### 📦 Variant Breakdown (Chọn file cài đặt phù hợp):
+            - **`Mizuki-v${{ env.VERSION }}-arm64-v8a.apk`**: Dành cho hầu hết tất cả smartphone Android hiện đại (64-bit ARM). Khuyên dùng!
+            - **`Mizuki-v${{ env.VERSION }}-universal.apk`**: Bản tổng hợp đầy đủ thư viện (dùng được cho mọi dòng máy, dung lượng lớn hơn).
+            - **`Mizuki-v${{ env.VERSION }}-armeabi-v7a.apk`**: Dành cho thiết bị Android 32-bit đời cũ.
+            - **`Mizuki-v${{ env.VERSION }}-x86_64.apk`**: Dành cho giả lập Android 64-bit hoặc thiết bị Intel/AMD.
+            - **`Mizuki-v${{ env.VERSION }}-x86.apk`**: Dành cho giả lập Android 32-bit.
+            
+            ### 🔒 Kiểm tra tính toàn vẹn (Checksums):
+            Xem chi tiết mã băm SHA-256 trong tệp `SHA256SUMS.txt`.
