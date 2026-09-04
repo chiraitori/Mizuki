@@ -28,6 +28,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import dev.chiraitori.mizuki.ui.components.bounceClick
 import dev.chiraitori.mizuki.ui.components.bounceOnTouch
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,7 +75,9 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.RestartAlt
@@ -1497,33 +1500,112 @@ fun SettingsScreen(
         // CATEGORY 9: VỀ ỨNG DỤNG & CHẨN ĐOÁN
         // ----------------------------------------------------
         if (currentPage == SettingsPage.ABOUT) {
-            SettingsCategoryHeader(stringResource(R.string.settings_section_about), Icons.Rounded.Info)
-
             SettingsGroupCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(44.dp)
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                        modifier = Modifier.size(76.dp)
                     ) {
                         Image(
                             painter = painterResource(R.drawable.mizuki_avatar),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentDescription = stringResource(R.string.about_app_title),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(22.dp)),
                             contentScale = ContentScale.Crop
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(stringResource(R.string.about_app_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(stringResource(R.string.about_version) + " (Public Beta)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = stringResource(R.string.about_app_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = stringResource(R.string.about_app_tagline),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(R.string.about_badge_beta),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Policy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.about_badge_license),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.about_badge_author),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                 }
-                SettingsDivider()
-                Text(stringResource(R.string.about_engine), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(stringResource(R.string.about_free_space, freeSpace), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(stringResource(R.string.about_cpu, primaryAbi), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(stringResource(R.string.about_interface), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             SettingsCategoryHeader(stringResource(R.string.settings_app_update_title), Icons.Rounded.SystemUpdate)
