@@ -187,4 +187,20 @@
     <string name="settings_sponsorblock_categories">SponsorBlock categories</string>
     <string name="settings_sponsorblock_categories_summary">Select which segments to automatically remove</string>
     <string name="dialog_sponsorblock_cats_title">Select SponsorBlock categories</string>
+
+    <!-- App Update via GitHub Releases -->
+    <string name="settings_app_update_title">Check for app updates</string>
+    <string name="settings_app_update_summary">Check GitHub Releases for new updates</string>
+    <string name="settings_app_update_checking">Checking GitHub Releases…</string>
+    <string name="settings_app_update_latest">You are using the latest version (%1$s)</string>
+    <string name="settings_app_update_available_title">New version available: %1$s</string>
+    <string name="settings_app_update_error">Unable to check for updates. Check connection and try again.</string>
+    <string name="action_open_github">View on GitHub</string>
+    <string name="action_download_apk">Download APK</string>
+    <string name="settings_community_title">Project &amp; Source</string>
+    <string name="settings_github_repo">GitHub Repository</string>
+    <string name="settings_github_repo_summary">Source code, license, and issue tracker</string>
+    <string name="settings_github_releases">Releases &amp; Changelog</string>
+    <string name="settings_github_releases_summary">View release notes and APK archives</string>
+    <string name="about_github_issues">Report an issue / Feedback</string>
 </resources>

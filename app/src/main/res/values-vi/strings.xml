@@ -144,7 +144,7 @@
     <string name="action_reset">Đặt lại</string>
     <string name="settings_section_about">Thông tin &amp; chẩn đoán</string>
     <string name="about_app_title">Mizuki Video Downloader</string>
-    <string name="about_version">Phiên bản 1.0</string>
+    <string name="about_version">Phiên bản 0.1</string>
     <string name="about_engine">• Lõi: yt-dlp + aria2c + FFmpeg</string>
     <string name="about_free_space">• Bộ nhớ trống: %1$s</string>
     <string name="about_cpu">• CPU thiết bị: %1$s</string>
@@ -187,4 +187,20 @@
     <string name="settings_sponsorblock_categories">Danh mục SponsorBlock</string>
     <string name="settings_sponsorblock_categories_summary">Chọn các phân đoạn cần tự động loại bỏ</string>
     <string name="dialog_sponsorblock_cats_title">Chọn danh mục SponsorBlock</string>
+
+    <!-- App Update via GitHub Releases -->
+    <string name="settings_app_update_title">Kiểm tra cập nhật ứng dụng</string>
+    <string name="settings_app_update_summary">Kiểm tra phiên bản mới từ GitHub Releases</string>
+    <string name="settings_app_update_checking">Đang kiểm tra GitHub Releases…</string>
+    <string name="settings_app_update_latest">Bạn đang dùng phiên bản mới nhất (%1$s)</string>
+    <string name="settings_app_update_available_title">Đã có phiên bản mới: %1$s</string>
+    <string name="settings_app_update_error">Không thể kiểm tra cập nhật. Vui lòng thử lại sau.</string>
+    <string name="action_open_github">Xem trên GitHub</string>
+    <string name="action_download_apk">Tải về APK</string>
+    <string name="settings_community_title">Dự án &amp; Mã nguồn</string>
+    <string name="settings_github_repo">Kho mã nguồn GitHub</string>
+    <string name="settings_github_repo_summary">Mã nguồn mở, giấy phép và báo lỗi</string>
+    <string name="settings_github_releases">Phiên bản &amp; Lịch sử cập nhật</string>
+    <string name="settings_github_releases_summary">Xem ghi chú phát hành và kho tệp APK</string>
+    <string name="about_github_issues">Báo lỗi &amp; Góp ý (GitHub Issues)</string>
 </resources>

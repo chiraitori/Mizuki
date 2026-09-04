@@ -147,7 +147,30 @@ import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import dev.chiraitori.mizuki.data.repository.ThemeMode
 import dev.chiraitori.mizuki.ui.components.CommandTemplateDialog
 import dev.chiraitori.mizuki.ui.components.CookieDialog
+import android.content.Intent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+
+data class AppReleaseUpdate(
+    val tagName: String,
+    val name: String,
+    val body: String,
+    val htmlUrl: String,
+    val downloadUrl: String?
+)
+
+private fun compareAppVersions(v1: String, v2: String): Int {
+    val parts1 = v1.substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
+    val parts2 = v2.substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
+    val maxLen = maxOf(parts1.size, parts2.size)
+    for (i in 0 until maxLen) {
+        val p1 = parts1.getOrElse(i) { 0 }
+        val p2 = parts2.getOrElse(i) { 0 }
+        if (p1 != p2) return p1.compareTo(p2)
+    }
+    return 0
+}
 
 enum class SettingsPage(
     @param:androidx.annotation.StringRes val titleRes: Int,
@@ -207,6 +230,10 @@ fun SettingsScreen(
     var subFormatExpanded by remember { mutableStateOf(false) }
     var rateLimitExpanded by remember { mutableStateOf(false) }
     var updateChannelExpanded by remember { mutableStateOf(false) }
+
+    var isCheckingAppUpdate by remember { mutableStateOf(false) }
+    var availableAppUpdate by remember { mutableStateOf<AppReleaseUpdate?>(null) }
+    var showAppUpdateDialog by remember { mutableStateOf(false) }
 
     val restoreSuccessMessage = stringResource(R.string.toast_restore_success)
     val restoreErrorMessage = stringResource(R.string.toast_restore_error)
@@ -276,6 +303,108 @@ fun SettingsScreen(
     BackHandler(enabled = selectedPage != null) { selectedPageName = null }
     val primaryAbi = remember {
         if (Build.SUPPORTED_ABIS.isNotEmpty()) Build.SUPPORTED_ABIS[0] else "Unknown"
+    }
+
+    fun checkAppUpdate(isManual: Boolean = true) {
+        scope.launch {
+            isCheckingAppUpdate = true
+            if (isManual) {
+                Toast.makeText(context, context.getString(R.string.settings_app_update_checking), Toast.LENGTH_SHORT).show()
+            }
+            withContext(Dispatchers.IO) {
+                try {
+                    val url = java.net.URL("https://api.github.com/repos/chiraitori/Mizuki/releases")
+                    val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        setRequestProperty("Accept", "application/vnd.github.v3+json")
+                        setRequestProperty("User-Agent", "Mizuki-Android-App")
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                    }
+                    if (conn.responseCode in 200..299) {
+                        val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                        val array = org.json.JSONArray(responseText)
+                        if (array.length() > 0) {
+                            val latest = array.getJSONObject(0)
+                            val tagName = latest.getString("tag_name")
+                            val releaseName = latest.optString("name", tagName)
+                            val body = latest.optString("body", "")
+                            val htmlUrl = latest.getString("html_url")
+
+                            var bestApkUrl: String? = null
+                            val assets = latest.optJSONArray("assets")
+                            if (assets != null) {
+                                val targetAbi = primaryAbi.lowercase()
+                                var fallbackUrl: String? = null
+                                for (i in 0 until assets.length()) {
+                                    val asset = assets.getJSONObject(i)
+                                    val assetName = asset.optString("name", "")
+                                    val downloadUrl = asset.optString("browser_download_url", "")
+                                    if (assetName.endsWith(".apk", ignoreCase = true)) {
+                                        if (assetName.contains(targetAbi, ignoreCase = true)) {
+                                            bestApkUrl = downloadUrl
+                                            break
+                                        } else if (assetName.contains("universal", ignoreCase = true)) {
+                                            fallbackUrl = downloadUrl
+                                        } else if (bestApkUrl == null) {
+                                            bestApkUrl = downloadUrl
+                                        }
+                                    }
+                                }
+                                if (bestApkUrl == null) bestApkUrl = fallbackUrl
+                            }
+
+                            val currentVersion = "0.1"
+                            val remoteVerClean = tagName.removePrefix("v").trim()
+                            val isNewer = compareAppVersions(remoteVerClean, currentVersion) > 0
+
+                            withContext(Dispatchers.Main) {
+                                isCheckingAppUpdate = false
+                                if (isNewer) {
+                                    availableAppUpdate = AppReleaseUpdate(
+                                        tagName = tagName,
+                                        name = releaseName,
+                                        body = body,
+                                        htmlUrl = htmlUrl,
+                                        downloadUrl = bestApkUrl
+                                    )
+                                    showAppUpdateDialog = true
+                                } else {
+                                    if (isManual) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.settings_app_update_latest, "v$currentVersion"),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                isCheckingAppUpdate = false
+                                if (isManual) {
+                                    Toast.makeText(context, context.getString(R.string.settings_app_update_latest, "v0.1"), Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            isCheckingAppUpdate = false
+                            if (isManual) {
+                                Toast.makeText(context, context.getString(R.string.settings_app_update_error), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isCheckingAppUpdate = false
+                        if (isManual) {
+                            Toast.makeText(context, context.getString(R.string.settings_app_update_error), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
     }
     val easeOutCubic = remember { CubicBezierEasing(0.16f, 1f, 0.3f, 1f) }
 
@@ -1369,22 +1498,53 @@ fun SettingsScreen(
         // ----------------------------------------------------
         if (currentPage == SettingsPage.ABOUT) {
             SettingsCategoryHeader(stringResource(R.string.settings_section_about), Icons.Rounded.Info)
-        
-        
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+
+            SettingsGroupCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.mizuki_avatar),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(stringResource(R.string.about_app_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.about_version) + " (Public Beta)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                SettingsDivider()
+                Text(stringResource(R.string.about_engine), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.about_free_space, freeSpace), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.about_cpu, primaryAbi), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.about_interface), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            SettingsCategoryHeader(stringResource(R.string.settings_app_update_title), Icons.Rounded.SystemUpdate)
+
+            SettingsGroupCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer,
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
-                                Icons.Rounded.Info,
+                                Icons.Rounded.SystemUpdate,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(10.dp)
@@ -1392,22 +1552,116 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(stringResource(R.string.about_app_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(stringResource(R.string.about_version), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.settings_app_update_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.settings_app_update_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                    Text(stringResource(R.string.about_engine), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(stringResource(R.string.about_free_space, freeSpace), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(stringResource(R.string.about_cpu, primaryAbi), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(stringResource(R.string.about_interface), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { if (!isCheckingAppUpdate) checkAppUpdate(isManual = true) },
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        if (isCheckingAppUpdate) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        } else {
+                            Text(stringResource(R.string.action_update))
+                        }
+                    }
                 }
+            }
+
+            SettingsCategoryHeader(stringResource(R.string.settings_community_title), Icons.Rounded.Code)
+
+            SettingsGroupCard {
+                SettingsClickableRow(
+                    icon = Icons.Rounded.Code,
+                    title = stringResource(R.string.settings_github_repo),
+                    subtitle = stringResource(R.string.settings_github_repo_summary),
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/chiraitori/Mizuki"))
+                        context.startActivity(intent)
+                    }
+                )
+
+                SettingsDivider()
+
+                SettingsClickableRow(
+                    icon = Icons.Rounded.Tag,
+                    title = stringResource(R.string.settings_github_releases),
+                    subtitle = stringResource(R.string.settings_github_releases_summary),
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/chiraitori/Mizuki/releases"))
+                        context.startActivity(intent)
+                    }
+                )
+
+                SettingsDivider()
+
+                SettingsClickableRow(
+                    icon = Icons.Rounded.BugReport,
+                    title = stringResource(R.string.about_github_issues),
+                    subtitle = "github.com/chiraitori/Mizuki/issues",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/chiraitori/Mizuki/issues"))
+                        context.startActivity(intent)
+                    }
+                )
             }
         }
     }
 }
 
     // Dialogs
+    if (showAppUpdateDialog && availableAppUpdate != null) {
+        val update = availableAppUpdate!!
+        AlertDialog(
+            onDismissRequest = { showAppUpdateDialog = false },
+            title = {
+                Text(
+                    stringResource(R.string.settings_app_update_available_title, update.tagName),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(update.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    if (update.body.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth().height(160.dp).verticalScroll(rememberScrollState())
+                        ) {
+                            Text(
+                                text = update.body,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(12.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAppUpdateDialog = false
+                        val targetUrl = update.downloadUrl ?: update.htmlUrl
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                        context.startActivity(intent)
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(if (update.downloadUrl != null) stringResource(R.string.action_download_apk) else stringResource(R.string.action_open_github))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAppUpdateDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+
     if (showCookieDialog) {
         CookieDialog(onDismiss = { showCookieDialog = false })
     }
@@ -1955,6 +2209,8 @@ fun SettingsClickableRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    actionText: String? = null,
+    trailingIcon: ImageVector? = Icons.AutoMirrored.Rounded.ArrowForward,
     onClick: () -> Unit
 ) {
     Row(
@@ -2001,12 +2257,21 @@ fun SettingsClickableRow(
             }
         }
         Spacer(modifier = Modifier.width(8.dp))
-        FilledTonalButton(
-            onClick = onClick,
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Text(stringResource(R.string.action_edit), fontSize = 12.sp)
+        if (actionText != null) {
+            FilledTonalButton(
+                onClick = onClick,
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(actionText, fontSize = 12.sp)
+            }
+        } else if (trailingIcon != null) {
+            Icon(
+                trailingIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
