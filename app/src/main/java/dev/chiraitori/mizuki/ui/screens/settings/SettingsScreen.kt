@@ -1739,12 +1739,6 @@ fun SettingsScreen(
 
 @Composable
 private fun SettingsHub(onSelect: (SettingsPage) -> Unit) {
-    Text(
-        text = stringResource(R.string.settings_subtitle),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-    )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SettingsPage.entries.forEachIndexed { index, page ->
             val shape = when {
