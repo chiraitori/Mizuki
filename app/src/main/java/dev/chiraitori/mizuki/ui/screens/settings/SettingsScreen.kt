@@ -27,6 +27,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import dev.chiraitori.mizuki.ui.components.bounceClick
+import dev.chiraitori.mizuki.ui.components.bounceOnTouch
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -41,7 +45,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -142,7 +149,7 @@ import dev.chiraitori.mizuki.ui.components.CommandTemplateDialog
 import dev.chiraitori.mizuki.ui.components.CookieDialog
 import kotlinx.coroutines.launch
 
-private enum class SettingsPage(
+enum class SettingsPage(
     @param:androidx.annotation.StringRes val titleRes: Int,
     @param:androidx.annotation.StringRes val subtitleRes: Int,
     val icon: ImageVector
@@ -169,7 +176,11 @@ fun SettingsScreen(
     val appPrefs by settingsRepo.appPrefsFlow.collectAsState()
     val config = appPrefs.downloadConfig
     var selectedPageName by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedPage = selectedPageName?.let { name -> SettingsPage.entries.find { it.name == name } }
+    val selectedPage = remember(selectedPageName) {
+        selectedPageName?.let { name ->
+            try { SettingsPage.valueOf(name) } catch (_: Exception) { null }
+        }
+    }
 
     var isUpdatingEngine by remember { mutableStateOf(false) }
 
@@ -273,43 +284,38 @@ fun SettingsScreen(
         transitionSpec = {
             if (initialState == null && targetState != null) {
                 (slideInHorizontally(
-                    animationSpec = tween(340, easing = easeOutCubic),
-                    initialOffsetX = { (it * 0.35f).toInt() }
-                ) + fadeIn(animationSpec = tween(280)) + scaleIn(
-                    initialScale = 0.95f,
-                    animationSpec = tween(340, easing = easeOutCubic)
-                )).togetherWith(
+                    animationSpec = tween(320, easing = easeOutCubic),
+                    initialOffsetX = { it }
+                ) + fadeIn(animationSpec = tween(260))).togetherWith(
                     slideOutHorizontally(
                         animationSpec = tween(280, easing = easeOutCubic),
-                        targetOffsetX = { (-it * 0.15f).toInt() }
+                        targetOffsetX = { -it / 4 }
                     ) + fadeOut(animationSpec = tween(200))
                 )
             } else if (initialState != null && targetState == null) {
                 (slideInHorizontally(
-                    animationSpec = tween(320, easing = easeOutCubic),
-                    initialOffsetX = { (-it * 0.15f).toInt() }
-                ) + fadeIn(animationSpec = tween(260)) + scaleIn(
-                    initialScale = 0.95f,
-                    animationSpec = tween(320, easing = easeOutCubic)
-                )).togetherWith(
+                    animationSpec = tween(300, easing = easeOutCubic),
+                    initialOffsetX = { -it / 4 }
+                ) + fadeIn(animationSpec = tween(240))).togetherWith(
                     slideOutHorizontally(
-                        animationSpec = tween(300, easing = easeOutCubic),
-                        targetOffsetX = { (it * 0.35f).toInt() }
-                    ) + fadeOut(animationSpec = tween(220))
+                        animationSpec = tween(280, easing = easeOutCubic),
+                        targetOffsetX = { it }
+                    ) + fadeOut(animationSpec = tween(200))
                 )
             } else {
-                (fadeIn(animationSpec = tween(260))).togetherWith(fadeOut(animationSpec = tween(220)))
+                (fadeIn(animationSpec = tween(240))).togetherWith(fadeOut(animationSpec = tween(200)))
             }
         },
         label = "SettingsPageTransition",
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize().statusBarsPadding()
     ) { currentPage ->
         val pageScrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(pageScrollState)
-                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (currentPage == null) {
@@ -1739,6 +1745,26 @@ fun SettingsScreen(
 
 @Composable
 private fun SettingsHub(onSelect: (SettingsPage) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.mizuki_avatar),
+            contentDescription = "Mizuki",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = stringResource(R.string.settings_title),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+    }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SettingsPage.entries.forEachIndexed { index, page ->
             val shape = when {
@@ -1748,10 +1774,11 @@ private fun SettingsHub(onSelect: (SettingsPage) -> Unit) {
                 else -> RoundedCornerShape(6.dp)
             }
             Surface(
+                onClick = { onSelect(page) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(88.dp)
-                    .bounceClick(scaleDown = 0.97f) { onSelect(page) },
+                    .bounceOnTouch(scaleDown = 0.97f),
                 shape = shape,
                 color = MaterialTheme.colorScheme.surfaceContainer
             ) {
@@ -1807,8 +1834,7 @@ private fun SettingsDetailHeader(page: SettingsPage, onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
-            onClick = onBack,
-            modifier = Modifier.bounceClick(scaleDown = 0.88f) { onBack() }
+            onClick = onBack
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -1819,7 +1845,7 @@ private fun SettingsDetailHeader(page: SettingsPage, onBack: () -> Unit) {
         Column {
             Text(
                 text = stringResource(page.titleRes),
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Text(

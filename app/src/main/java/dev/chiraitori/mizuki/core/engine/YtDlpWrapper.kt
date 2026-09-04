@@ -88,7 +88,7 @@ object YtDlpWrapper {
             val details = VideoDetails(
                 id = videoInfo.id ?: System.currentTimeMillis().toString(),
                 title = videoInfo.title ?: "Media_${System.currentTimeMillis()}",
-                author = videoInfo.uploader ?: platform.displayName,
+                author = videoInfo.uploader ?: platform?.displayName ?: "Web",
                 thumbnailUrl = videoInfo.thumbnail,
                 originalUrl = url,
                 webpageUrl = videoInfo.webpageUrl ?: url,

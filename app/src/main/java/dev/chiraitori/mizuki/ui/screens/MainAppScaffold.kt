@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.History
@@ -79,8 +81,10 @@ import dev.chiraitori.mizuki.core.model.DownloadTask
 import dev.chiraitori.mizuki.core.model.TaskStatus
 import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import dev.chiraitori.mizuki.ui.components.PixelPlayerStyleNavigationBar
+import dev.chiraitori.mizuki.ui.components.bounceOnTouch
 import dev.chiraitori.mizuki.ui.screens.history.HistoryScreen
 import dev.chiraitori.mizuki.ui.screens.home.HomeScreen
+import dev.chiraitori.mizuki.ui.screens.settings.SettingsPage
 import dev.chiraitori.mizuki.ui.screens.settings.SettingsScreen
 
 enum class MainTab(
@@ -144,41 +148,10 @@ fun MainAppScaffold(
         )
     } else {
         Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Image(
-                                painter = painterResource(id = R.drawable.mizuki_avatar),
-                                contentDescription = "Mizuki",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = if (currentTab == MainTab.SETTINGS) {
-                                    stringResource(R.string.settings_title)
-                                } else {
-                                    stringResource(R.string.app_name)
-                                },
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            }
-        ) { innerPadding ->
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+        ) { _ ->
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = innerPadding.calculateTopPadding())
+                modifier = Modifier.fillMaxSize()
             ) {
                 // PixelPlayer-style Shared-Axis Slide & Fade Screen Transitions
                 // The screen content takes the full viewport so scrolling seamlessly flows

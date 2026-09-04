@@ -36,12 +36,14 @@ object UrlParser {
         PINTEREST("Pinterest"),
         TWITCH("Twitch"),
         SOUNDCLOUD("SoundCloud"),
-        VIMEO("Vimeo"),
-        GENERIC("Mọi trang web (Hơn 1800+ nền tảng)")
+        VIMEO("Vimeo")
     }
 
-    fun detectPlatform(url: String): Platform {
-        val lower = url.lowercase()
+    fun detectPlatform(url: String): Platform? {
+        val lower = url.lowercase().trim()
+        if (!lower.contains("http://") && !lower.contains("https://") && !lower.contains(".")) {
+            return null
+        }
         return when {
             lower.contains("tiktok.com") || lower.contains("douyin.com") -> Platform.TIKTOK
             lower.contains("youtube.com") || lower.contains("youtu.be") -> Platform.YOUTUBE
@@ -55,7 +57,7 @@ object UrlParser {
             lower.contains("twitch.tv") -> Platform.TWITCH
             lower.contains("soundcloud.com") -> Platform.SOUNDCLOUD
             lower.contains("vimeo.com") -> Platform.VIMEO
-            else -> Platform.GENERIC
+            else -> null
         }
     }
 }

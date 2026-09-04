@@ -1,14 +1,10 @@
 *.iml
 .gradle
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.idea/
 .DS_Store
 /build
+app/build/
 /captures
 .externalNativeBuild
 .cxx
@@ -19,5 +15,9 @@ flud_dex/
 reference/
 *.keystore
 *.jks
-*.png
 dist_apks/
+process_icon.py
+
+# Ignore root or test PNGs, allow app resources
+/*.png
+/screenshots/
