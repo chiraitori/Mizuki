@@ -155,15 +155,34 @@ fun FormatSelectionDialog(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = tabCount),
-                        label = { Text("Định dạng", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        icon = {},
+                        label = {
+                            Text(
+                                text = "Định dạng",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     )
 
                     if (hasStreams) {
+                        val streamCountText = if (videoDetails.formats.isNotEmpty()) " (${videoDetails.formats.size})" else ""
                         SegmentedButton(
                             selected = selectedTab == 1,
                             onClick = { selectedTab = 1 },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = tabCount),
-                            label = { Text("Stream (${videoDetails.formats.size})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                            icon = {},
+                            label = {
+                                Text(
+                                    text = "Stream$streamCountText",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         )
                     }
 
@@ -171,7 +190,16 @@ fun FormatSelectionDialog(
                         selected = selectedTab == (if (hasStreams) 2 else 1),
                         onClick = { selectedTab = if (hasStreams) 2 else 1 },
                         shape = SegmentedButtonDefaults.itemShape(index = if (hasStreams) 2 else 1, count = tabCount),
-                        label = { Text("Tùy chọn", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        icon = {},
+                        label = {
+                            Text(
+                                text = "Tùy chọn",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     )
                 }
 
@@ -193,16 +221,15 @@ fun FormatSelectionDialog(
                                         selectedFormatId = null
                                     },
                                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                                    icon = {
-                                        if (selectedType == DownloadType.VIDEO) {
-                                            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        }
-                                    }
+                                    icon = {}
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Video HD")
+                                        Text("Video", fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                                     }
                                 }
 
@@ -213,16 +240,15 @@ fun FormatSelectionDialog(
                                         selectedFormatId = null
                                     },
                                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                                    icon = {
-                                        if (selectedType == DownloadType.AUDIO) {
-                                            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        }
-                                    }
+                                    icon = {}
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Audio MP3")
+                                        Text("Âm thanh", fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                                     }
                                 }
                             }

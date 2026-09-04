@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.ClearAll
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Download
@@ -64,6 +65,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -430,11 +432,12 @@ fun HomeScreen(
                                         .bounceOnTouch()
                                         .weight(1f)
                                         .height(48.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
                                     shape = RoundedCornerShape(14.dp)
                                 ) {
                                     Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Video HD", fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Video", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                                 }
 
                                 FilledTonalButton(
@@ -443,11 +446,12 @@ fun HomeScreen(
                                         .bounceOnTouch()
                                         .weight(1f)
                                         .height(48.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp),
                                     shape = RoundedCornerShape(14.dp)
                                 ) {
                                     Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Audio", fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Audio", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                                 }
 
                                 OutlinedButton(
@@ -478,8 +482,16 @@ fun HomeScreen(
             }
         }
 
-        // Active Tasks Section
-        if (activeTasks.isNotEmpty()) {
+        // Active Tasks Sections
+        val inProgressTasks = activeTasks.filter {
+            it.status == TaskStatus.DOWNLOADING || it.status == TaskStatus.PROCESSING || it.status == TaskStatus.IDLE
+        }
+        val finishedTasks = activeTasks.filter {
+            it.status == TaskStatus.COMPLETED || it.status == TaskStatus.FAILED || it.status == TaskStatus.CANCELED
+        }
+
+        // 1. In-Progress Downloads
+        if (inProgressTasks.isNotEmpty()) {
             item {
                 Row(
                     modifier = Modifier
@@ -489,18 +501,60 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Hàng đợi đang tải (${activeTasks.count { it.status == TaskStatus.DOWNLOADING || it.status == TaskStatus.IDLE }}/${activeTasks.size})",
+                        text = "Đang tải (${inProgressTasks.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            items(activeTasks, key = { it.id }) { task ->
+            items(inProgressTasks, key = { it.id }) { task ->
                 ActiveTaskItemCard(
                     task = task,
                     onCancel = { downloaderEngine.cancelTask(task.id) },
                     onRetry = { downloaderEngine.retryTask(task.id) },
+                    onDismiss = { downloaderEngine.removeTask(task.id) },
+                    onShowLogs = { taskForLogs = task }
+                )
+            }
+        }
+
+        // 2. Finished Downloads (with quick Clear/Dọn dẹp action)
+        if (finishedTasks.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Vừa hoàn thành (${finishedTasks.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TextButton(
+                        onClick = { downloaderEngine.clearFinishedTasks() },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ClearAll,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Dọn dẹp", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            items(finishedTasks, key = { it.id }) { task ->
+                ActiveTaskItemCard(
+                    task = task,
+                    onCancel = { downloaderEngine.cancelTask(task.id) },
+                    onRetry = { downloaderEngine.retryTask(task.id) },
+                    onDismiss = { downloaderEngine.removeTask(task.id) },
                     onShowLogs = { taskForLogs = task }
                 )
             }
@@ -543,6 +597,7 @@ fun ActiveTaskItemCard(
     task: DownloadTask,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
+    onDismiss: () -> Unit,
     onShowLogs: () -> Unit
 ) {
     val context = LocalContext.current
@@ -637,6 +692,12 @@ fun ActiveTaskItemCard(
                         ) {
                             Icon(Icons.Rounded.Refresh, contentDescription = "Thử lại")
                         }
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.bounceOnTouch()
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Xóa", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     TaskStatus.COMPLETED -> {
                         task.filePath?.let { path ->
@@ -662,6 +723,12 @@ fun ActiveTaskItemCard(
                             ) {
                                 Icon(Icons.Rounded.PlayArrow, contentDescription = "Phát", modifier = Modifier.size(18.dp))
                             }
+                        }
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.bounceOnTouch()
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     else -> {}

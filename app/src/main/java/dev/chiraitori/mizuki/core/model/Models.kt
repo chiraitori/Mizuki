@@ -1,5 +1,22 @@
 package dev.chiraitori.mizuki.core.model
 
+fun cleanCodec(codec: String?): String {
+    if (codec.isNullOrBlank() || codec == "none") return "Không rõ"
+    val lower = codec.lowercase()
+    return when {
+        lower.startsWith("avc1") || lower.startsWith("h264") -> "H.264"
+        lower.startsWith("vp09") || lower.startsWith("vp9") -> "VP9"
+        lower.startsWith("av01") || lower.startsWith("av1") -> "AV1"
+        lower.startsWith("hev1") || lower.startsWith("h265") || lower.startsWith("hevc") -> "H.265"
+        lower.startsWith("mp4a") || lower.startsWith("aac") -> "AAC"
+        lower.startsWith("opus") -> "Opus"
+        lower.startsWith("flac") -> "FLAC"
+        lower.startsWith("vorbis") -> "Vorbis"
+        lower.startsWith("mp3") -> "MP3"
+        else -> codec.substringBefore(".")
+    }
+}
+
 data class StreamFormat(
     val formatId: String,
     val ext: String,
@@ -18,17 +35,19 @@ data class StreamFormat(
 ) {
     val resolutionLabel: String
         get() = when {
-            height > 0 && width > 0 -> "${width}x${height}" + (if (fps > 30) " @${fps.toInt()}fps" else "")
+            height >= 2160 -> "4K (2160p)" + (if (fps > 30) " @${fps.toInt()}fps" else "")
+            height >= 1440 -> "2K (1440p)" + (if (fps > 30) " @${fps.toInt()}fps" else "")
             height > 0 -> "${height}p" + (if (fps > 30) " @${fps.toInt()}fps" else "")
-            isAudioOnly -> "Audio ($acodec)"
-            else -> formatNote ?: ext
+            isAudioOnly -> if (tbr > 0) "Audio (~${tbr.toInt()} kbps)" else "Audio (${cleanCodec(acodec)})"
+            else -> formatNote ?: ext.uppercase()
         }
 
     val codecLabel: String
         get() = when {
-            isVideoOnly -> "Video ($vcodec)"
-            isAudioOnly -> "Audio ($acodec)"
-            else -> "$vcodec / $acodec"
+            isVideoOnly -> "Video (${cleanCodec(vcodec)})"
+            isAudioOnly -> "Audio (${cleanCodec(acodec)})"
+            hasBoth -> "${cleanCodec(vcodec)} + ${cleanCodec(acodec)}"
+            else -> cleanCodec(vcodec ?: acodec)
         }
 }
 

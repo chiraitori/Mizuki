@@ -63,27 +63,66 @@ object YtDlpWrapper {
             val videoInfo = YoutubeDL.getInstance().getInfo(request)
 
             val formats = videoInfo.formats?.mapNotNull { f ->
-                if (f.formatId == null) return@mapNotNull null
-                val isAudioOnly = f.vcodec == "none" || f.height == 0
-                val isVideoOnly = f.acodec == "none"
+                val formatId = f.formatId ?: return@mapNotNull null
+                val ext = (f.ext ?: "").lowercase()
+
+                // 1. Exclude storyboard thumbnail sheets and manifest junk
+                if (ext == "mhtml" || ext == "json" || formatId.startsWith("sb", ignoreCase = true)) {
+                    return@mapNotNull null
+                }
+                if (f.url?.contains("mhtml", ignoreCase = true) == true) {
+                    return@mapNotNull null
+                }
+
+                val rawVcodec = f.vcodec?.takeIf { it != "none" && it.isNotBlank() }
+                val rawAcodec = f.acodec?.takeIf { it != "none" && it.isNotBlank() }
+
+                // Non-media tracks (neither video nor audio codec is present)
+                if (rawVcodec == null && rawAcodec == null) {
+                    return@mapNotNull null
+                }
+
+                // Audio-only track: Valid audio codec and no video codec (or height == 0)
+                val isAudioOnly = (rawVcodec == null || (f.height ?: 0) <= 0) && rawAcodec != null
+
+                // Video-only track: Valid video codec and no audio codec
+                val isVideoOnly = rawVcodec != null && rawAcodec == null
+
+                // Both: Valid video and audio
+                val hasBoth = rawVcodec != null && rawAcodec != null
+
+                // Filter out non-audio streams that have no valid dimensions
+                if (!isAudioOnly && (f.height ?: 0) <= 0 && (f.width ?: 0) <= 0) {
+                    return@mapNotNull null
+                }
+
+                // Filter out micro storyboard images (< 144p) that yt-dlp mislabeled as video
+                if (isVideoOnly && (f.height ?: 0) < 144 && (f.width ?: 0) < 144) {
+                    return@mapNotNull null
+                }
 
                 StreamFormat(
-                    formatId = f.formatId!!,
-                    ext = f.ext ?: "mp4",
+                    formatId = formatId,
+                    ext = ext.ifBlank { "mp4" },
                     formatNote = f.formatNote,
                     width = f.width ?: 0,
                     height = f.height ?: 0,
                     fps = f.fps?.toDouble() ?: 30.0,
-                    vcodec = f.vcodec,
-                    acodec = f.acodec,
+                    vcodec = rawVcodec,
+                    acodec = rawAcodec,
                     fileSize = f.fileSize ?: 0L,
                     tbr = f.tbr?.toDouble() ?: 0.0,
                     isVideoOnly = isVideoOnly,
                     isAudioOnly = isAudioOnly,
-                    hasBoth = !isVideoOnly && !isAudioOnly,
+                    hasBoth = hasBoth,
                     directUrl = f.url
                 )
-            } ?: emptyList()
+            }?.sortedWith(
+                compareByDescending<StreamFormat> { !it.isAudioOnly } // Videos first, Audio after
+                    .thenByDescending { it.height }                    // Highest resolution first
+                    .thenByDescending { it.tbr }                       // Highest bitrate
+                    .thenByDescending { it.fps }                       // Highest fps
+            ) ?: emptyList()
 
             val details = VideoDetails(
                 id = videoInfo.id ?: System.currentTimeMillis().toString(),
@@ -163,7 +202,25 @@ object YtDlpWrapper {
 
                 // Format & Stream Selection (Following Seal's exact pipeline)
                 if (!config.selectedFormatId.isNullOrEmpty()) {
-                    addOption("-f", config.selectedFormatId)
+                    val formatArg = if (config.type == DownloadType.VIDEO && !config.selectedFormatId.contains("+")) {
+                        "${config.selectedFormatId}+ba/${config.selectedFormatId}"
+                    } else {
+                        config.selectedFormatId
+                    }
+                    addOption("-f", formatArg)
+                    if (config.type == DownloadType.VIDEO) {
+                        addOption(
+                            "--merge-output-format",
+                            if (globalPrefs.videoContainer == "ANY") "mp4/mkv" else globalPrefs.videoContainer.lowercase()
+                        )
+                    }
+                    if (config.embedMetadata) {
+                        addOption("--add-metadata")
+                    }
+                    if (config.embedThumbnail) {
+                        addOption("--embed-thumbnail")
+                        addOption("--convert-thumbnails", "jpg")
+                    }
                 } else if (config.directStreamUrl.isNullOrEmpty()) {
                     when (config.type) {
                         DownloadType.AUDIO -> {

@@ -261,6 +261,24 @@ class DownloaderEngine private constructor(private val appContext: Context) {
         }
     }
 
+    fun removeTask(taskId: String) {
+        val task = _tasks.value.find { it.id == taskId }
+        if (task != null && (task.status == TaskStatus.DOWNLOADING || task.status == TaskStatus.PROCESSING)) {
+            cancelTask(taskId)
+        }
+        _tasks.update { tasks -> tasks.filter { it.id != taskId } }
+    }
+
+    fun clearFinishedTasks() {
+        _tasks.update { tasks ->
+            tasks.filter {
+                it.status == TaskStatus.DOWNLOADING ||
+                it.status == TaskStatus.PROCESSING ||
+                it.status == TaskStatus.IDLE
+            }
+        }
+    }
+
     private fun updateTask(taskId: String, transform: (DownloadTask) -> DownloadTask) {
         _tasks.update { tasks ->
             tasks.map { task ->
