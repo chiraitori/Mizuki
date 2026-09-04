@@ -105,25 +105,46 @@ import dev.chiraitori.mizuki.ui.components.TaskLogDialog
 import dev.chiraitori.mizuki.ui.components.bounceClick
 import dev.chiraitori.mizuki.ui.components.bounceOnTouch
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 import java.io.File
+
+internal class HomeScreenState(initialUrl: String?) {
+    val inputUrl = mutableStateOf(initialUrl.orEmpty())
+    val isAnalyzing = mutableStateOf(false)
+    val videoDetails = mutableStateOf<VideoDetails?>(null)
+    val analyzeError = mutableStateOf<String?>(null)
+    val showFormatDialog = mutableStateOf(false)
+    val showPlaylistDialog = mutableStateOf(false)
+    val taskForLogs = mutableStateOf<DownloadTask?>(null)
+    val handledInitialUrl = mutableStateOf<String?>(null)
+}
+
+@Composable
+internal fun rememberHomeScreenState(initialUrl: String?): HomeScreenState =
+    remember { HomeScreenState(initialUrl) }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(
-    initialUrl: String? = null
+internal fun HomeScreen(
+    initialUrl: String? = null,
+    retainedState: HomeScreenState? = null,
+    retainedScope: CoroutineScope? = null
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val localScope = rememberCoroutineScope()
+    val scope = retainedScope ?: localScope
     val downloaderEngine = remember { DownloaderEngine.getInstance(context) }
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
+    val defaultState = rememberHomeScreenState(initialUrl)
+    val homeState = retainedState ?: defaultState
 
-    var inputUrl by remember { mutableStateOf(initialUrl ?: "") }
-    var isAnalyzing by remember { mutableStateOf(false) }
-    var videoDetails by remember { mutableStateOf<VideoDetails?>(null) }
-    var analyzeError by remember { mutableStateOf<String?>(null) }
-    var showFormatDialog by remember { mutableStateOf(false) }
-    var showPlaylistDialog by remember { mutableStateOf(false) }
-    var taskForLogs by remember { mutableStateOf<DownloadTask?>(null) }
+    var inputUrl by homeState.inputUrl
+    var isAnalyzing by homeState.isAnalyzing
+    var videoDetails by homeState.videoDetails
+    var analyzeError by homeState.analyzeError
+    var showFormatDialog by homeState.showFormatDialog
+    var showPlaylistDialog by homeState.showPlaylistDialog
+    var taskForLogs by homeState.taskForLogs
 
     val activeTasks by downloaderEngine.tasks.collectAsState()
     val savedConfig by settingsRepo.configFlow.collectAsState()
@@ -212,7 +233,8 @@ fun HomeScreen(
     }
 
     LaunchedEffect(initialUrl) {
-        if (!initialUrl.isNullOrEmpty()) {
+        if (!initialUrl.isNullOrEmpty() && homeState.handledInitialUrl.value != initialUrl) {
+            homeState.handledInitialUrl.value = initialUrl
             analyze(initialUrl)
         }
     }

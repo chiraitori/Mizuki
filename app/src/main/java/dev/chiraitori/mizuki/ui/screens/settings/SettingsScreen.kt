@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.chiraitori.mizuki.ui.screens.settings
 
+import dev.chiraitori.mizuki.BuildConfig
 import android.content.Context
 import android.app.Activity
 import android.net.Uri
@@ -13,10 +16,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -112,6 +111,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -357,7 +357,7 @@ fun SettingsScreen(
                                 if (bestApkUrl == null) bestApkUrl = fallbackUrl
                             }
 
-                            val currentVersion = "0.1"
+                            val currentVersion = BuildConfig.VERSION_NAME
                             val remoteVerClean = tagName.removePrefix("v").trim()
                             val isNewer = compareAppVersions(remoteVerClean, currentVersion) > 0
 
@@ -386,7 +386,7 @@ fun SettingsScreen(
                             withContext(Dispatchers.Main) {
                                 isCheckingAppUpdate = false
                                 if (isManual) {
-                                    Toast.makeText(context, context.getString(R.string.settings_app_update_latest, "v0.1"), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.settings_app_update_latest, "v${BuildConfig.VERSION_NAME}"), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -409,33 +409,34 @@ fun SettingsScreen(
             }
         }
     }
-    val easeOutCubic = remember { CubicBezierEasing(0.16f, 1f, 0.3f, 1f) }
+    val motionScheme = remember { MotionScheme.expressive() }
 
     AnimatedContent(
         targetState = selectedPage,
         transitionSpec = {
             if (initialState == null && targetState != null) {
                 (slideInHorizontally(
-                    animationSpec = tween(320, easing = easeOutCubic),
+                    animationSpec = motionScheme.defaultSpatialSpec(),
                     initialOffsetX = { it }
-                ) + fadeIn(animationSpec = tween(260))).togetherWith(
+                ) + fadeIn(animationSpec = motionScheme.defaultEffectsSpec())).togetherWith(
                     slideOutHorizontally(
-                        animationSpec = tween(280, easing = easeOutCubic),
+                        animationSpec = motionScheme.fastSpatialSpec(),
                         targetOffsetX = { -it / 4 }
-                    ) + fadeOut(animationSpec = tween(200))
+                    ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 )
             } else if (initialState != null && targetState == null) {
                 (slideInHorizontally(
-                    animationSpec = tween(300, easing = easeOutCubic),
+                    animationSpec = motionScheme.defaultSpatialSpec(),
                     initialOffsetX = { -it / 4 }
-                ) + fadeIn(animationSpec = tween(240))).togetherWith(
+                ) + fadeIn(animationSpec = motionScheme.defaultEffectsSpec())).togetherWith(
                     slideOutHorizontally(
-                        animationSpec = tween(280, easing = easeOutCubic),
+                        animationSpec = motionScheme.fastSpatialSpec(),
                         targetOffsetX = { it }
-                    ) + fadeOut(animationSpec = tween(200))
+                    ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 )
             } else {
-                (fadeIn(animationSpec = tween(240))).togetherWith(fadeOut(animationSpec = tween(200)))
+                fadeIn(animationSpec = motionScheme.defaultEffectsSpec())
+                    .togetherWith(fadeOut(animationSpec = motionScheme.fastEffectsSpec()))
             }
         },
         label = "SettingsPageTransition",
@@ -771,8 +772,10 @@ fun SettingsScreen(
 
                 AnimatedVisibility(
                     visible = config.removeSponsorSegments,
-                    enter = expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
-                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut()
+                    enter = expandVertically(animationSpec = motionScheme.defaultSpatialSpec()) +
+                        fadeIn(animationSpec = motionScheme.defaultEffectsSpec()),
+                    exit = shrinkVertically(animationSpec = motionScheme.fastSpatialSpec()) +
+                        fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 ) {
                     Column {
                         SettingsDivider()
@@ -1107,8 +1110,10 @@ fun SettingsScreen(
 
                 AnimatedVisibility(
                     visible = config.embedSubtitles,
-                    enter = expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
-                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut()
+                    enter = expandVertically(animationSpec = motionScheme.defaultSpatialSpec()) +
+                        fadeIn(animationSpec = motionScheme.defaultEffectsSpec()),
+                    exit = shrinkVertically(animationSpec = motionScheme.fastSpatialSpec()) +
+                        fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SettingsDivider()
@@ -1192,8 +1197,10 @@ fun SettingsScreen(
 
                 AnimatedVisibility(
                     visible = config.useAria2c,
-                    enter = expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
-                    exit = shrinkVertically(animationSpec = tween(200)) + fadeOut()
+                    enter = expandVertically(animationSpec = motionScheme.defaultSpatialSpec()) +
+                        fadeIn(animationSpec = motionScheme.defaultEffectsSpec()),
+                    exit = shrinkVertically(animationSpec = motionScheme.fastSpatialSpec()) +
+                        fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1552,7 +1559,7 @@ fun SettingsScreen(
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         ) {
                             Text(
-                                text = stringResource(R.string.about_badge_beta),
+                                text = stringResource(R.string.about_badge_beta, BuildConfig.VERSION_NAME),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)

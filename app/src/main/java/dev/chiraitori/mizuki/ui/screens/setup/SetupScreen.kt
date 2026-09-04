@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.chiraitori.mizuki.ui.screens.setup
 
 import android.Manifest
@@ -13,10 +15,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -73,6 +73,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
@@ -115,6 +116,7 @@ fun SetupScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val motionScheme = remember { MotionScheme.expressive() }
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
     val appPrefs by settingsRepo.appPrefsFlow.collectAsState()
 
@@ -171,16 +173,26 @@ fun SetupScreen(
                 ) {
                     repeat(4) { pageIndex ->
                         val isCurrent = pagerState.currentPage == pageIndex
-                        val width by animateFloatAsState(if (isCurrent) 28f else 8f, label = "dotWidth")
+                        val width by animateFloatAsState(
+                            targetValue = if (isCurrent) 28f else 8f,
+                            animationSpec = motionScheme.defaultSpatialSpec(),
+                            label = "dotWidth"
+                        )
+                        val dotColor by animateColorAsState(
+                            targetValue = if (isCurrent) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            animationSpec = motionScheme.fastEffectsSpec(),
+                            label = "dotColor"
+                        )
                         Box(
                             modifier = Modifier
                                 .height(8.dp)
                                 .width(width.dp)
                                 .clip(CircleShape)
-                                .background(
-                                    if (isCurrent) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant
-                                )
+                                .background(dotColor)
                         )
                     }
                 }

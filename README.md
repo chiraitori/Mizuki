@@ -3,7 +3,7 @@
 An open-source, local-first video and audio downloader for Android powered by yt-dlp, aria2c, and FFmpeg, built with Jetpack Compose and Material 3 Expressive motion.
 
 [![Android CI](https://github.com/chiraitori/Mizuki/actions/workflows/ci.yml/badge.svg)](https://github.com/chiraitori/Mizuki/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v0.1--beta-orange.svg)](https://github.com/chiraitori/Mizuki/releases)
+[![Version](https://img.shields.io/github/v/release/chiraitori/Mizuki?include_prereleases&label=version)](https://github.com/chiraitori/Mizuki/releases/latest)
 [![Status](https://img.shields.io/badge/status-Public%20Beta-blue.svg)](https://github.com/chiraitori/Mizuki/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-green.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-10%2B%20(API%2029%2B)-brightgreen.svg)](https://developer.android.com)
@@ -49,17 +49,17 @@ Mizuki runs extraction and downloading tasks entirely on-device without remote s
 ## Downloads & Architecture Variants
 
 > [!NOTE]
-> Mizuki is currently in **Public Beta (`v0.1`)**. Core extraction and downloading functionality is stable, but edge cases across different host sites are actively being tested and refined. Bug reports and feedback via [GitHub Issues](https://github.com/chiraitori/Mizuki/issues) are welcome.
+> Mizuki is currently in **Public Beta**. Core extraction and downloading functionality is stable, but edge cases across different host sites are actively being tested and refined. Bug reports and feedback via [GitHub Issues](https://github.com/chiraitori/Mizuki/issues) are welcome.
 
-Pre-built APKs for version `v0.1-beta` are available on the [Releases](https://github.com/chiraitori/Mizuki/releases) page.
+Pre-built APKs for the latest version are available on the [Releases](https://github.com/chiraitori/Mizuki/releases/latest) page.
 
 | Package File | Target Architecture | Description |
 |---|---|---|
-| `Mizuki-v0.1-arm64-v8a.apk` | `arm64-v8a` (64-bit ARM) | Recommended for modern Android smartphones (2017+). Smallest footprint. |
-| `Mizuki-v0.1-universal.apk` | Universal | Contains all native binaries. Compatible with any device; larger file size. |
-| `Mizuki-v0.1-armeabi-v7a.apk` | `armeabi-v7a` (32-bit ARM) | For legacy 32-bit Android devices. |
-| `Mizuki-v0.1-x86_64.apk` | `x86_64` (64-bit Intel/AMD) | For Android emulators and x86 tablets. |
-| `Mizuki-v0.1-x86.apk` | `x86` (32-bit Intel) | For legacy 32-bit x86 environments. |
+| `Mizuki-v{version}-arm64-v8a.apk` | `arm64-v8a` (64-bit ARM) | Recommended for modern Android smartphones (2017+). Smallest footprint. |
+| `Mizuki-v{version}-universal.apk` | Universal | Contains all native binaries. Compatible with any device; larger file size. |
+| `Mizuki-v{version}-armeabi-v7a.apk` | `armeabi-v7a` (32-bit ARM) | For legacy 32-bit Android devices. |
+| `Mizuki-v{version}-x86_64.apk` | `x86_64` (64-bit Intel/AMD) | For Android emulators and x86 tablets. |
+| `Mizuki-v{version}-x86.apk` | `x86` (32-bit Intel) | For legacy 32-bit x86 environments. |
 
 ## Requirements
 

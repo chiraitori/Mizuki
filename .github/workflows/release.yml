@@ -80,7 +80,7 @@ jobs:
           # Extract version from tag or gradle
           VERSION="${GITHUB_REF_NAME#v}"
           if [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
-            VERSION=$(grep 'versionName' app/build.gradle.kts | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+            VERSION=$(grep '^mizuki.versionName=' gradle.properties | cut -d= -f2)
           fi
           echo "Building distribution for version: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_ENV

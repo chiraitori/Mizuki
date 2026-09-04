@@ -145,8 +145,8 @@
     <string name="settings_section_about">Giới thiệu</string>
     <string name="about_app_title">Mizuki</string>
     <string name="about_app_tagline">Trình tải đa phương tiện mã nguồn mở</string>
-    <string name="about_version">Phiên bản 0.1</string>
-    <string name="about_badge_beta">v0.1 Public Beta</string>
+    <string name="about_version">Phiên bản %1$s</string>
+    <string name="about_badge_beta">v%1$s Public Beta</string>
     <string name="about_badge_license">GPL-3.0</string>
     <string name="about_badge_author">chiraitori</string>
     <string name="action_save">Lưu</string>

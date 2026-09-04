@@ -6,8 +6,8 @@ Security patches and bug fixes are provided for the latest release line:
 
 | Version | Supported          | Status |
 | ------- | ------------------ | ------ |
-| v0.1.x  | :white_check_mark: | Active (Public Beta) |
-| < v0.1  | :x:                | Deprecated |
+| Latest release   | :white_check_mark: | Active (Public Beta) |
+| Earlier releases | :x:                | Deprecated |
 
 ---
 

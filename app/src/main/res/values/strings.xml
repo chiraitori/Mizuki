@@ -145,8 +145,8 @@
     <string name="settings_section_about">About</string>
     <string name="about_app_title">Mizuki</string>
     <string name="about_app_tagline">Open-source media downloader</string>
-    <string name="about_version">Version 0.1</string>
-    <string name="about_badge_beta">v0.1 Public Beta</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_badge_beta">v%1$s Public Beta</string>
     <string name="about_badge_license">GPL-3.0</string>
     <string name="about_badge_author">chiraitori</string>
     <string name="action_save">Save</string>

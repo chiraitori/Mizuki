@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.chiraitori.mizuki.ui.screens
 
 import android.Manifest
@@ -8,8 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -48,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,6 +60,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +86,7 @@ import dev.chiraitori.mizuki.ui.components.PixelPlayerStyleNavigationBar
 import dev.chiraitori.mizuki.ui.components.bounceOnTouch
 import dev.chiraitori.mizuki.ui.screens.history.HistoryScreen
 import dev.chiraitori.mizuki.ui.screens.home.HomeScreen
+import dev.chiraitori.mizuki.ui.screens.home.rememberHomeScreenState
 import dev.chiraitori.mizuki.ui.screens.settings.SettingsPage
 import dev.chiraitori.mizuki.ui.screens.settings.SettingsScreen
 
@@ -103,6 +106,8 @@ fun MainAppScaffold(
 ) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(MainTab.HOME) }
+    val homeScreenState = rememberHomeScreenState(initialUrl)
+    val homeScreenScope = rememberCoroutineScope()
 
     val downloaderEngine = remember { DownloaderEngine.getInstance(context) }
     val settingsRepository = remember { SettingsRepository.getInstance(context) }
@@ -156,7 +161,7 @@ fun MainAppScaffold(
                 // PixelPlayer-style Shared-Axis Slide & Fade Screen Transitions
                 // The screen content takes the full viewport so scrolling seamlessly flows
                 // behind the floating navigation bar layer.
-                val motionEasing = remember { CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f) }
+                val motionScheme = remember { MotionScheme.expressive() }
 
                 AnimatedContent(
                     targetState = currentTab,
@@ -165,20 +170,24 @@ fun MainAppScaffold(
                         val slideDistance = 250
 
                         (slideInHorizontally(
-                            animationSpec = tween(320, easing = motionEasing),
+                            animationSpec = motionScheme.defaultSpatialSpec(),
                             initialOffsetX = { if (forward) slideDistance else -slideDistance }
-                        ) + fadeIn(animationSpec = tween(280, easing = motionEasing))).togetherWith(
+                        ) + fadeIn(animationSpec = motionScheme.defaultEffectsSpec())).togetherWith(
                             slideOutHorizontally(
-                                animationSpec = tween(300, easing = motionEasing),
+                                animationSpec = motionScheme.fastSpatialSpec(),
                                 targetOffsetX = { if (forward) -slideDistance else slideDistance }
-                            ) + fadeOut(animationSpec = tween(220, easing = motionEasing))
+                            ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                         )
                     },
                     label = "ScreenTransition"
                 ) { targetScreen ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         when (targetScreen) {
-                            MainTab.HOME -> HomeScreen(initialUrl = initialUrl)
+                            MainTab.HOME -> HomeScreen(
+                                initialUrl = initialUrl,
+                                retainedState = homeScreenState,
+                                retainedScope = homeScreenScope
+                            )
                             MainTab.HISTORY -> HistoryScreen()
                             MainTab.SETTINGS -> SettingsScreen(onOpenSetupScreen = { showSetupScreenOnDemand = true })
                         }
@@ -195,8 +204,14 @@ fun MainAppScaffold(
                     // Floating InApp Live Activity Pill (floats right above the nav bar when downloading)
                     AnimatedVisibility(
                         visible = activeTask != null && currentTab != MainTab.HOME,
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit = slideOutVertically { it } + fadeOut()
+                        enter = slideInVertically(
+                            animationSpec = motionScheme.defaultSpatialSpec(),
+                            initialOffsetY = { it }
+                        ) + fadeIn(animationSpec = motionScheme.defaultEffectsSpec()),
+                        exit = slideOutVertically(
+                            animationSpec = motionScheme.fastSpatialSpec(),
+                            targetOffsetY = { it }
+                        ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                     ) {
                         activeTask?.let { task ->
                             Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {

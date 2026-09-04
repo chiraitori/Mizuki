@@ -3,6 +3,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseRef = providers.environmentVariable("GITHUB_REF_NAME").orNull
+val mizukiVersionName = releaseRef
+    ?.takeIf { it.matches(Regex("^v\\d+(\\.\\d+){1,2}([.-].+)?$")) }
+    ?.removePrefix("v")
+    ?: providers.gradleProperty("mizuki.versionName").get()
+val mizukiVersionCode = providers.gradleProperty("mizuki.versionCode").get().toInt()
+
 android {
     namespace = "dev.chiraitori.mizuki"
     compileSdk {
@@ -13,8 +20,8 @@ android {
         applicationId = "dev.chiraitori.mizuki"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = mizukiVersionCode
+        versionName = mizukiVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -84,6 +91,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
     packaging {
