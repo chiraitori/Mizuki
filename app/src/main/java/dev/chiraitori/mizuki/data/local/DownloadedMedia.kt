@@ -3,6 +3,8 @@ package dev.chiraitori.mizuki.data.local
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteDatabaseCorruptException
+import android.database.sqlite.SQLiteException
 import android.database.sqlite.SQLiteOpenHelper
 import dev.chiraitori.mizuki.core.model.CommandTemplate
 import dev.chiraitori.mizuki.core.model.DownloadType
@@ -30,13 +32,41 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
     private val _templatesFlow = MutableStateFlow<List<CommandTemplate>>(emptyList())
     val templatesFlow = _templatesFlow.asStateFlow()
 
-    init {
-        refreshFlow()
-        refreshTemplates()
+    override fun onCreate(db: SQLiteDatabase) {
+        createMediaTable(db)
+        createTemplatesTable(db)
+        insertBuiltInTemplates(db)
     }
 
-    override fun onCreate(db: SQLiteDatabase) {
-        val createMediaTable = """
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // Never drop user data during an app update. The original implementation
+        // recreated both tables here, which made every schema bump look like a
+        // database reset and could leave older installs unusable.
+        createMediaTable(db)
+        createTemplatesTable(db)
+
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_ID TEXT")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_TITLE TEXT NOT NULL DEFAULT ''")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_UPLOADER TEXT")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_DURATION INTEGER NOT NULL DEFAULT 0")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_THUMBNAIL_URL TEXT")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_FILE_PATH TEXT NOT NULL DEFAULT ''")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_FILE_SIZE INTEGER NOT NULL DEFAULT 0")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_ORIGINAL_URL TEXT NOT NULL DEFAULT ''")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_TYPE TEXT NOT NULL DEFAULT 'VIDEO'")
+        ensureColumn(db, TABLE_MEDIA, "$COL_MEDIA_DOWNLOADED_AT INTEGER NOT NULL DEFAULT 0")
+
+        ensureColumn(db, TABLE_TEMPLATES, "$COL_TMPL_ID TEXT")
+        ensureColumn(db, TABLE_TEMPLATES, "$COL_TMPL_NAME TEXT NOT NULL DEFAULT ''")
+        ensureColumn(db, TABLE_TEMPLATES, "$COL_TMPL_DESC TEXT")
+        ensureColumn(db, TABLE_TEMPLATES, "$COL_TMPL_ARGS TEXT NOT NULL DEFAULT ''")
+        ensureColumn(db, TABLE_TEMPLATES, "$COL_TMPL_BUILTIN INTEGER NOT NULL DEFAULT 0")
+
+        insertBuiltInTemplates(db)
+    }
+
+    private fun createMediaTable(db: SQLiteDatabase) {
+        db.execSQL("""
             CREATE TABLE $TABLE_MEDIA (
                 $COL_MEDIA_ID TEXT PRIMARY KEY,
                 $COL_MEDIA_TITLE TEXT NOT NULL,
@@ -49,9 +79,11 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
                 $COL_MEDIA_TYPE TEXT NOT NULL,
                 $COL_MEDIA_DOWNLOADED_AT INTEGER NOT NULL
             )
-        """.trimIndent()
+        """.trimIndent().replace("CREATE TABLE $TABLE_MEDIA", "CREATE TABLE IF NOT EXISTS $TABLE_MEDIA"))
+    }
 
-        val createTemplatesTable = """
+    private fun createTemplatesTable(db: SQLiteDatabase) {
+        db.execSQL("""
             CREATE TABLE $TABLE_TEMPLATES (
                 $COL_TMPL_ID TEXT PRIMARY KEY,
                 $COL_TMPL_NAME TEXT NOT NULL,
@@ -59,18 +91,20 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
                 $COL_TMPL_ARGS TEXT NOT NULL,
                 $COL_TMPL_BUILTIN INTEGER DEFAULT 0
             )
-        """.trimIndent()
-
-        db.execSQL(createMediaTable)
-        db.execSQL(createTemplatesTable)
-
-        insertBuiltInTemplates(db)
+        """.trimIndent().replace("CREATE TABLE $TABLE_TEMPLATES", "CREATE TABLE IF NOT EXISTS $TABLE_TEMPLATES"))
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_MEDIA")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_TEMPLATES")
-        onCreate(db)
+    private fun ensureColumn(db: SQLiteDatabase, table: String, columnDefinition: String) {
+        val columnName = columnDefinition.substringBefore(' ')
+        val exists = db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            nameIndex >= 0 && generateSequence {
+                if (cursor.moveToNext()) cursor.getString(nameIndex) else null
+            }.any { it == columnName }
+        }
+        if (!exists) {
+            db.execSQL("ALTER TABLE $table ADD COLUMN $columnDefinition")
+        }
     }
 
     private fun insertBuiltInTemplates(db: SQLiteDatabase) {
@@ -89,7 +123,7 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
                 put(COL_TMPL_ARGS, tmpl.customArgs)
                 put(COL_TMPL_BUILTIN, if (tmpl.isBuiltIn) 1 else 0)
             }
-            db.insert(TABLE_TEMPLATES, null, values)
+            db.insertWithOnConflict(TABLE_TEMPLATES, null, values, SQLiteDatabase.CONFLICT_IGNORE)
         }
     }
 
@@ -212,7 +246,7 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
 
     companion object {
         private const val DATABASE_NAME = "mizuki_media.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         private const val TABLE_MEDIA = "downloaded_media"
         private const val COL_MEDIA_ID = "id"
@@ -238,8 +272,48 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
 
         fun getInstance(context: Context): MediaDatabaseHelper {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: MediaDatabaseHelper(context.applicationContext).also { INSTANCE = it }
+                INSTANCE ?: createInstance(context.applicationContext).also { INSTANCE = it }
             }
         }
+
+        private fun createInstance(context: Context): MediaDatabaseHelper {
+            val helper = MediaDatabaseHelper(context)
+            return try {
+                helper.initializeFlows()
+                helper
+            } catch (error: SQLiteException) {
+                helper.close()
+                if (!isRecoverableDatabaseError(error)) throw error
+
+                archiveCorruptDatabase(context)
+                MediaDatabaseHelper(context).also { it.initializeFlows() }
+            }
+        }
+
+        private fun isRecoverableDatabaseError(error: SQLiteException): Boolean {
+            if (error is SQLiteDatabaseCorruptException) return true
+            val message = error.message.orEmpty().lowercase()
+            return "malformed" in message ||
+                "disk image" in message ||
+                "no such table" in message ||
+                "no such column" in message
+        }
+
+        private fun archiveCorruptDatabase(context: Context) {
+            val database = context.getDatabasePath(DATABASE_NAME)
+            if (!database.exists()) return
+
+            val archived = java.io.File(database.parentFile, "$DATABASE_NAME.corrupt-${System.currentTimeMillis()}")
+            if (!database.renameTo(archived)) {
+                SQLiteDatabase.deleteDatabase(database)
+            }
+            java.io.File(database.path + "-wal").delete()
+            java.io.File(database.path + "-shm").delete()
+        }
+    }
+
+    private fun initializeFlows() {
+        refreshFlow()
+        refreshTemplates()
     }
 }
