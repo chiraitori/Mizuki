@@ -137,13 +137,17 @@ jobs:
             dist_apks/SHA256SUMS.txt
           body: |
             ## Mizuki Video & Audio Downloader v${{ env.VERSION }}
-            
-            ### 📦 Variant Breakdown (Chọn file cài đặt phù hợp):
-            - **`Mizuki-v${{ env.VERSION }}-arm64-v8a.apk`**: Dành cho hầu hết tất cả smartphone Android hiện đại (64-bit ARM). Khuyên dùng!
-            - **`Mizuki-v${{ env.VERSION }}-universal.apk`**: Bản tổng hợp đầy đủ thư viện (dùng được cho mọi dòng máy, dung lượng lớn hơn).
-            - **`Mizuki-v${{ env.VERSION }}-armeabi-v7a.apk`**: Dành cho thiết bị Android 32-bit đời cũ.
-            - **`Mizuki-v${{ env.VERSION }}-x86_64.apk`**: Dành cho giả lập Android 64-bit hoặc thiết bị Intel/AMD.
-            - **`Mizuki-v${{ env.VERSION }}-x86.apk`**: Dành cho giả lập Android 32-bit.
-            
-            ### 🔒 Kiểm tra tính toàn vẹn (Checksums):
-            Xem chi tiết mã băm SHA-256 trong tệp `SHA256SUMS.txt`.
+
+            ### Architecture Variants
+
+            Select the appropriate APK for your target device:
+
+            - **`Mizuki-v${{ env.VERSION }}-arm64-v8a.apk`**: 64-bit ARM (Android 10+). Recommended for modern smartphones and tablets.
+            - **`Mizuki-v${{ env.VERSION }}-universal.apk`**: Universal build containing all native binaries (runs on all supported devices, larger package size).
+            - **`Mizuki-v${{ env.VERSION }}-armeabi-v7a.apk`**: 32-bit ARM (legacy hardware).
+            - **`Mizuki-v${{ env.VERSION }}-x86_64.apk`**: 64-bit x86/x86_64 (Android emulators and Intel/AMD hardware).
+            - **`Mizuki-v${{ env.VERSION }}-x86.apk`**: 32-bit x86 hardware.
+
+            ### Checksums
+
+            Verify download integrity using the SHA-256 hashes listed in `SHA256SUMS.txt`.
