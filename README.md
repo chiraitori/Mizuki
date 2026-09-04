@@ -3,7 +3,8 @@
 An open-source, local-first video and audio downloader for Android powered by yt-dlp, aria2c, and FFmpeg, built with Jetpack Compose and Material 3 Expressive motion.
 
 [![Android CI](https://github.com/chiraitori/Mizuki/actions/workflows/ci.yml/badge.svg)](https://github.com/chiraitori/Mizuki/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v0.1-blue.svg)](https://github.com/chiraitori/Mizuki/releases)
+[![Version](https://img.shields.io/badge/version-v0.1--beta-orange.svg)](https://github.com/chiraitori/Mizuki/releases)
+[![Status](https://img.shields.io/badge/status-Public%20Beta-blue.svg)](https://github.com/chiraitori/Mizuki/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-green.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-10%2B%20(API%2029%2B)-brightgreen.svg)](https://developer.android.com)
 
@@ -47,7 +48,10 @@ Mizuki runs extraction and downloading tasks entirely on-device without remote s
 
 ## Downloads & Architecture Variants
 
-Pre-built APKs for version `v0.1` are available on the [Releases](https://github.com/chiraitori/Mizuki/releases) page.
+> [!NOTE]
+> Mizuki is currently in **Public Beta (`v0.1`)**. Core extraction and downloading functionality is stable, but edge cases across different host sites are actively being tested and refined. Bug reports and feedback via [GitHub Issues](https://github.com/chiraitori/Mizuki/issues) are welcome.
+
+Pre-built APKs for version `v0.1-beta` are available on the [Releases](https://github.com/chiraitori/Mizuki/releases) page.
 
 | Package File | Target Architecture | Description |
 |---|---|---|
