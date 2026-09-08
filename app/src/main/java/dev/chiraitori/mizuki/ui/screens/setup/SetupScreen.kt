@@ -243,6 +243,7 @@ fun SetupScreen(
                 if (pagerState.currentPage < 3) {
                     Text(
                         text = stringResource(R.string.setup_step, pagerState.currentPage + 1, 4),
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -510,6 +511,8 @@ private fun PermissionCheckCard(
                     )
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 if (!isGranted) {
                     Button(
                         onClick = onGrant,
@@ -697,10 +700,13 @@ private fun PersonalizationPage(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(Icons.Rounded.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.dynamic_color_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             Text(stringResource(R.string.dynamic_color_summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
