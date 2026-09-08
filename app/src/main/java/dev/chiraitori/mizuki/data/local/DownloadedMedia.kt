@@ -138,20 +138,36 @@ class MediaDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE
     // --- Media Operations ---
     fun insertOrUpdate(media: DownloadedMedia) {
         val db = writableDatabase
-        val values = ContentValues().apply {
-            put(COL_MEDIA_ID, media.id)
-            put(COL_MEDIA_TITLE, media.title)
-            put(COL_MEDIA_UPLOADER, media.uploader)
-            put(COL_MEDIA_DURATION, media.duration)
-            put(COL_MEDIA_THUMBNAIL_URL, media.thumbnailUrl)
-            put(COL_MEDIA_FILE_PATH, media.filePath)
-            put(COL_MEDIA_FILE_SIZE, media.fileSize)
-            put(COL_MEDIA_ORIGINAL_URL, media.originalUrl)
-            put(COL_MEDIA_TYPE, media.type.name)
-            put(COL_MEDIA_DOWNLOADED_AT, media.downloadedAt)
-        }
-        db.insertWithOnConflict(TABLE_MEDIA, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        db.insertWithOnConflict(TABLE_MEDIA, null, media.toContentValues(), SQLiteDatabase.CONFLICT_REPLACE)
         refreshFlow()
+    }
+
+    fun insertOrUpdateAll(items: List<DownloadedMedia>) {
+        if (items.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            items.forEach { media ->
+                db.insertWithOnConflict(TABLE_MEDIA, null, media.toContentValues(), SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        refreshFlow()
+    }
+
+    private fun DownloadedMedia.toContentValues() = ContentValues().apply {
+        put(COL_MEDIA_ID, id)
+        put(COL_MEDIA_TITLE, title)
+        put(COL_MEDIA_UPLOADER, uploader)
+        put(COL_MEDIA_DURATION, duration)
+        put(COL_MEDIA_THUMBNAIL_URL, thumbnailUrl)
+        put(COL_MEDIA_FILE_PATH, filePath)
+        put(COL_MEDIA_FILE_SIZE, fileSize)
+        put(COL_MEDIA_ORIGINAL_URL, originalUrl)
+        put(COL_MEDIA_TYPE, type.name)
+        put(COL_MEDIA_DOWNLOADED_AT, downloadedAt)
     }
 
     fun getAllMedia(): List<DownloadedMedia> {

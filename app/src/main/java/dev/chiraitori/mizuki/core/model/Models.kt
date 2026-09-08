@@ -54,6 +54,7 @@ data class StreamFormat(
 enum class DownloadType {
     VIDEO,
     AUDIO,
+    IMAGE,
     CUSTOM
 }
 
@@ -103,7 +104,8 @@ data class VideoDetails(
     val playlistCount: Int = 0,
     val playlistItems: List<PlaylistItem> = emptyList(),
     val directDownloadUrl: String? = null,
-    val directAudioUrl: String? = null
+    val directAudioUrl: String? = null,
+    val imageUrls: List<String> = emptyList()
 )
 
 data class CommandTemplate(

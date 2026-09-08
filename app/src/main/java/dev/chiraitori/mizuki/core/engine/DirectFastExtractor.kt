@@ -5,6 +5,7 @@ import dev.chiraitori.mizuki.core.model.StreamFormat
 import dev.chiraitori.mizuki.core.model.VideoDetails
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -50,6 +51,23 @@ object DirectFastExtractor {
                     val authorUrl = authorObj?.optString("unique_id")?.let { "@$it" }
                     val cover = data.optString("cover")
                     val duration = data.optLong("duration", 0)
+                    val imageUrls = data.optJSONArray("images").toUrlList()
+
+                    if (imageUrls.isNotEmpty()) {
+                        return Result.success(
+                            VideoDetails(
+                                id = id,
+                                title = title.ifBlank { "TikTok Photos" },
+                                author = author,
+                                authorUrl = authorUrl,
+                                thumbnailUrl = imageUrls.firstOrNull() ?: cover,
+                                originalUrl = rawUrl,
+                                webpageUrl = rawUrl,
+                                ext = "jpg",
+                                imageUrls = imageUrls
+                            )
+                        )
+                    }
 
                     val directPlayUrl = data.optString("play")
                     val directHdUrl = data.optString("hdplay").ifEmpty { directPlayUrl }
@@ -127,6 +145,22 @@ object DirectFastExtractor {
                         val title = aweme.optString("desc", "TikTok Video")
                         val authorObj = aweme.optJSONObject("author")
                         val author = authorObj?.optString("nickname") ?: "TikTok Creator"
+                        val imageUrls = extractFeedImageUrls(aweme)
+                        if (imageUrls.isNotEmpty()) {
+                            return Result.success(
+                                VideoDetails(
+                                    id = videoId,
+                                    title = title.ifBlank { "TikTok Photos" },
+                                    author = author,
+                                    authorUrl = authorObj?.optString("unique_id")?.let { "@$it" },
+                                    thumbnailUrl = imageUrls.first(),
+                                    originalUrl = rawUrl,
+                                    webpageUrl = finalUrl,
+                                    ext = "jpg",
+                                    imageUrls = imageUrls
+                                )
+                            )
+                        }
                         val videoObj = aweme.optJSONObject("video")
                         val playAddr = videoObj?.optJSONObject("play_addr")?.optJSONArray("url_list")
                         val directUrl = if (playAddr != null && playAddr.length() > 0) playAddr.getString(0) else null
@@ -154,6 +188,33 @@ object DirectFastExtractor {
         }
 
         return null
+    }
+
+    private fun JSONArray?.toUrlList(): List<String> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                optString(index).takeIf { it.startsWith("http") }?.let(::add)
+            }
+        }.distinct()
+    }
+
+    private fun extractFeedImageUrls(aweme: JSONObject): List<String> {
+        val images = aweme.optJSONObject("image_post_info")?.optJSONArray("images")
+            ?: return emptyList()
+        return buildList {
+            for (index in 0 until images.length()) {
+                val image = images.optJSONObject(index) ?: continue
+                val candidates = listOf("display_image", "origin_image")
+                val url = candidates.firstNotNullOfOrNull { key ->
+                    image.optJSONObject(key)
+                        ?.optJSONArray("url_list")
+                        .toUrlList()
+                        .firstOrNull()
+                }
+                if (!url.isNullOrBlank()) add(url)
+            }
+        }.distinct()
     }
 
     // 2. Twitter / X Direct Extractor

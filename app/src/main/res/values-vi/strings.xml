@@ -203,4 +203,18 @@
     <string name="settings_github_releases">Phiên bản &amp; Lịch sử cập nhật</string>
     <string name="settings_github_releases_summary">Xem ghi chú phát hành và kho tệp APK</string>
     <string name="about_github_issues">Báo lỗi &amp; Góp ý (GitHub Issues)</string>
+    <string name="tiktok_photo_select_title">Chọn ảnh tải xuống</string>
+    <string name="tiktok_photo_selected_count">Đã chọn %1$d/%2$d ảnh</string>
+    <string name="tiktok_photo_download_count">Tải (%1$d)</string>
+    <string name="tiktok_photo_item_description">Ảnh %1$d trên %2$d</string>
+    <string name="tiktok_photo_selected">Đã chọn</string>
+    <string name="tiktok_photo_not_selected">Chưa chọn</string>
+    <string name="tiktok_photo_downloading">Đang tải %1$d/%2$d • %3$d%%</string>
+    <string name="tiktok_photo_download_error">Không tải được các ảnh đã chọn. Bấm Tải để thử lại.</string>
+    <string name="tiktok_photo_choose_count">Chọn ảnh (%1$d)</string>
+    <string name="tiktok_photo_download_complete">Đã lưu %1$d ảnh vào Pictures/Mizuki</string>
+    <string name="tiktok_photo_download_partial">Đã lưu %1$d ảnh; lỗi %2$d ảnh</string>
+    <string name="tiktok_photo_select_all">Chọn tất cả</string>
+    <string name="tiktok_photo_download">Tải về</string>
+    <string name="tiktok_photo_quick_title">Chọn ảnh để tải về</string>
 </resources>

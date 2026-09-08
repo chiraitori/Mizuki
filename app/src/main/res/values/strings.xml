@@ -203,4 +203,18 @@
     <string name="settings_github_releases">Releases &amp; Changelog</string>
     <string name="settings_github_releases_summary">View release notes and APK archives</string>
     <string name="about_github_issues">Report an issue / Feedback</string>
+    <string name="tiktok_photo_select_title">Select photos</string>
+    <string name="tiktok_photo_selected_count">%1$d/%2$d photos selected</string>
+    <string name="tiktok_photo_download_count">Download (%1$d)</string>
+    <string name="tiktok_photo_item_description">Photo %1$d of %2$d</string>
+    <string name="tiktok_photo_selected">Selected</string>
+    <string name="tiktok_photo_not_selected">Not selected</string>
+    <string name="tiktok_photo_downloading">Downloading %1$d/%2$d • %3$d%%</string>
+    <string name="tiktok_photo_download_error">Could not download the selected photos. Tap Download to retry.</string>
+    <string name="tiktok_photo_choose_count">Choose photos (%1$d)</string>
+    <string name="tiktok_photo_download_complete">Saved %1$d photos to Pictures/Mizuki</string>
+    <string name="tiktok_photo_download_partial">Saved %1$d photos; %2$d failed</string>
+    <string name="tiktok_photo_select_all">Select all</string>
+    <string name="tiktok_photo_download">Download</string>
+    <string name="tiktok_photo_quick_title">Choose photos to download</string>
 </resources>

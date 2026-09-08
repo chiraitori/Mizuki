@@ -102,6 +102,7 @@ import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import dev.chiraitori.mizuki.ui.components.FormatSelectionDialog
 import dev.chiraitori.mizuki.ui.components.PlaylistSelectionDialog
 import dev.chiraitori.mizuki.ui.components.TaskLogDialog
+import dev.chiraitori.mizuki.ui.components.TikTokPhotoSelectionDialog
 import dev.chiraitori.mizuki.ui.components.bounceClick
 import dev.chiraitori.mizuki.ui.components.bounceOnTouch
 import kotlinx.coroutines.launch
@@ -114,6 +115,7 @@ internal class HomeScreenState(initialUrl: String?) {
     val videoDetails = mutableStateOf<VideoDetails?>(null)
     val analyzeError = mutableStateOf<String?>(null)
     val showFormatDialog = mutableStateOf(false)
+    val showPhotoDialog = mutableStateOf(false)
     val showPlaylistDialog = mutableStateOf(false)
     val taskForLogs = mutableStateOf<DownloadTask?>(null)
     val handledInitialUrl = mutableStateOf<String?>(null)
@@ -143,6 +145,7 @@ internal fun HomeScreen(
     var videoDetails by homeState.videoDetails
     var analyzeError by homeState.analyzeError
     var showFormatDialog by homeState.showFormatDialog
+    var showPhotoDialog by homeState.showPhotoDialog
     var showPlaylistDialog by homeState.showPlaylistDialog
     var taskForLogs by homeState.taskForLogs
 
@@ -171,6 +174,8 @@ internal fun HomeScreen(
                 videoDetails = it
                 if (it.isPlaylist && it.playlistItems.isNotEmpty()) {
                     showPlaylistDialog = true
+                } else if (it.imageUrls.isNotEmpty()) {
+                    showPhotoDialog = true
                 }
             }.onFailure {
                 analyzeError = it.message ?: "Không thể lấy thông tin video"
@@ -444,57 +449,67 @@ internal fun HomeScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            if (details.imageUrls.isNotEmpty()) {
                                 Button(
-                                    onClick = { startDownloadWithConfig(savedConfig.copy(type = DownloadType.VIDEO)) },
+                                    onClick = { showPhotoDialog = true },
                                     modifier = Modifier
                                         .bounceOnTouch()
-                                        .weight(1f)
+                                        .fillMaxWidth()
                                         .height(48.dp),
                                     contentPadding = PaddingValues(horizontal = 8.dp),
                                     shape = RoundedCornerShape(14.dp)
                                 ) {
-                                    Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Video", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                    Text(
+                                        stringResource(R.string.tiktok_photo_choose_count, details.imageUrls.size),
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1
+                                    )
                                 }
-
-                                FilledTonalButton(
-                                    onClick = { startDownloadWithConfig(savedConfig.copy(type = DownloadType.AUDIO)) },
-                                    modifier = Modifier
-                                        .bounceOnTouch()
-                                        .weight(1f)
-                                        .height(48.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp),
-                                    shape = RoundedCornerShape(14.dp)
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Audio", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                                }
-
-                                OutlinedButton(
-                                    onClick = { showFormatDialog = true },
-                                    modifier = Modifier
-                                        .bounceOnTouch()
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Icon(Icons.Rounded.Tune, contentDescription = "Tùy chỉnh")
-                                }
-
-                                if (details.isPlaylist && details.playlistItems.isNotEmpty()) {
-                                    FilledTonalButton(
-                                        onClick = { showPlaylistDialog = true },
-                                        modifier = Modifier
-                                            .bounceOnTouch()
-                                            .height(48.dp),
+                                    Button(
+                                        onClick = { startDownloadWithConfig(savedConfig.copy(type = DownloadType.VIDEO)) },
+                                        modifier = Modifier.bounceOnTouch().weight(1f).height(48.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp),
                                         shape = RoundedCornerShape(14.dp)
                                     ) {
-                                        Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "Playlist")
+                                        Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Video", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                    }
+
+                                    FilledTonalButton(
+                                        onClick = { startDownloadWithConfig(savedConfig.copy(type = DownloadType.AUDIO)) },
+                                        modifier = Modifier.bounceOnTouch().weight(1f).height(48.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp),
+                                        shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Audio", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { showFormatDialog = true },
+                                        modifier = Modifier.bounceOnTouch().height(48.dp),
+                                        shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Tune, contentDescription = "Tùy chỉnh")
+                                    }
+
+                                    if (details.isPlaylist && details.playlistItems.isNotEmpty()) {
+                                        FilledTonalButton(
+                                            onClick = { showPlaylistDialog = true },
+                                            modifier = Modifier.bounceOnTouch().height(48.dp),
+                                            shape = RoundedCornerShape(14.dp)
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "Playlist")
+                                        }
                                     }
                                 }
                             }
@@ -591,6 +606,20 @@ internal fun HomeScreen(
             onConfirm = { customConfig ->
                 showFormatDialog = false
                 startDownloadWithConfig(customConfig)
+            }
+        )
+    }
+
+    if (showPhotoDialog && videoDetails?.imageUrls?.isNotEmpty() == true) {
+        val details = videoDetails!!
+        TikTokPhotoSelectionDialog(
+            videoDetails = details,
+            onDismiss = { showPhotoDialog = false },
+            onQueued = { count ->
+                Toast.makeText(context, "Đã thêm $count ảnh vào hàng đợi tải!", Toast.LENGTH_SHORT).show()
+                showPhotoDialog = false
+                videoDetails = null
+                inputUrl = ""
             }
         )
     }

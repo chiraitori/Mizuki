@@ -1,9 +1,19 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.chiraitori.mizuki.ui.quickdownload
 
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +93,7 @@ import dev.chiraitori.mizuki.core.model.VideoDetails
 import dev.chiraitori.mizuki.core.parser.UrlParser
 import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import dev.chiraitori.mizuki.ui.components.FormatSelectionDialog
+import dev.chiraitori.mizuki.ui.components.TikTokPhotoQuickPicker
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -95,6 +108,8 @@ fun QuickDownloadSheet(
     val scope = rememberCoroutineScope()
     val downloaderEngine = remember { DownloaderEngine.getInstance(context) }
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
+    val motionScheme = remember { MotionScheme.expressive() }
+    val verticalScrollState = rememberScrollState()
 
     val savedConfig by settingsRepo.configFlow.collectAsState()
 
@@ -106,6 +121,11 @@ fun QuickDownloadSheet(
     var etaText by remember { mutableStateOf("") }
     var downloadedFile by remember { mutableStateOf<File?>(null) }
     var showFormatDialog by remember { mutableStateOf(false) }
+
+    // The photo strip already owns horizontal drag. Keeping a parent vertical
+    // scroll (and a size animation) around it makes Compose arbitrate each
+    // pointer move between the sheet and LazyRow, which feels like a hitch.
+    val isPhotoQuickSheet = status == TaskStatus.READY && videoDetails?.imageUrls?.isNotEmpty() == true
 
     fun analyze(raw: String) {
         val extracted = UrlParser.extractUrl(raw) ?: raw.trim()
@@ -177,11 +197,9 @@ fun QuickDownloadSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp)
-                .verticalScroll(rememberScrollState())
-                .animateContentSize(),
+                .then(if (isPhotoQuickSheet) Modifier else Modifier.verticalScroll(verticalScrollState)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -227,7 +245,23 @@ fun QuickDownloadSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            when (status) {
+            AnimatedContent(
+                targetState = status,
+                modifier = Modifier.fillMaxWidth(),
+                transitionSpec = {
+                    (fadeIn(animationSpec = motionScheme.fastEffectsSpec()) +
+                        scaleIn(initialScale = 0.96f, animationSpec = motionScheme.defaultSpatialSpec()) +
+                        slideInVertically(animationSpec = motionScheme.defaultSpatialSpec()) { it / 6 })
+                        .togetherWith(
+                            fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
+                                scaleOut(targetScale = 0.98f, animationSpec = motionScheme.fastSpatialSpec()) +
+                                slideOutVertically(animationSpec = motionScheme.fastSpatialSpec()) { -it / 8 }
+                        )
+                        .using(SizeTransform(clip = false))
+                },
+                label = "QuickDownloadContent"
+            ) { animatedStatus ->
+            when (animatedStatus) {
                 TaskStatus.FETCHING_INFO -> {
                     Column(
                         modifier = Modifier
@@ -252,69 +286,54 @@ fun QuickDownloadSheet(
 
                 TaskStatus.READY -> {
                     videoDetails?.let { details ->
-                        VideoPreviewCardDetails(details = details)
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Action Buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { startDownload(savedConfig.copy(type = DownloadType.VIDEO)) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                        if (details.imageUrls.isNotEmpty()) {
+                            TikTokPhotoQuickPicker(
+                                videoDetails = details,
+                                onDismiss = onDismiss,
+                                onQueued = { count ->
+                                    Toast.makeText(context, "Đã thêm $count ảnh vào hàng đợi tải!", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        } else {
+                            VideoPreviewCardDetails(details = details)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Movie,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Video HD",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                                Button(
+                                    onClick = { startDownload(savedConfig.copy(type = DownloadType.VIDEO)) },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Video HD", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                                }
 
-                            FilledTonalButton(
-                                onClick = { startDownload(savedConfig.copy(type = DownloadType.AUDIO)) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Audiotrack,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Audio",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                                FilledTonalButton(
+                                    onClick = { startDownload(savedConfig.copy(type = DownloadType.AUDIO)) },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Audio", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                                }
 
-                            OutlinedButton(
-                                onClick = { showFormatDialog = true },
-                                modifier = Modifier.height(48.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp)
-                            ) {
-                                Icon(Icons.Rounded.Tune, contentDescription = "Tùy chỉnh", modifier = Modifier.size(18.dp))
+                                OutlinedButton(
+                                    onClick = { showFormatDialog = true },
+                                    modifier = Modifier.height(48.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Tune, contentDescription = "Tùy chỉnh", modifier = Modifier.size(18.dp))
+                                }
                             }
+                        }
                         }
                     }
                 }
@@ -511,6 +530,7 @@ fun QuickDownloadSheet(
 
                 else -> {}
             }
+            }
         }
     }
 
@@ -525,6 +545,7 @@ fun QuickDownloadSheet(
             }
         )
     }
+
 }
 
 @Composable

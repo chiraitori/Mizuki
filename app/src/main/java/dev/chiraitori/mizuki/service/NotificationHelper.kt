@@ -210,6 +210,39 @@ object NotificationHelper {
         manager.notify(completionId, completeNotification)
     }
 
+    fun finishPhotoNotification(
+        context: Context,
+        title: String,
+        photoCount: Int,
+        taskId: String,
+        cancelLiveNotification: Boolean
+    ) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (cancelLiveNotification) manager.cancel(NOTIFICATION_ID)
+
+        val completionId = COMPLETION_NOTIFICATION_BASE +
+            ((taskId.hashCode() and Int.MAX_VALUE) % COMPLETION_NOTIFICATION_RANGE)
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            context,
+            completionId,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val completeNotification = Notification.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(title)
+            .setContentText("Đã lưu $photoCount ảnh • Bấm để mở Mizuki")
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(openPendingIntent)
+            .build()
+
+        manager.notify(completionId, completeNotification)
+    }
+
     fun cancelNotification(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         manager.cancel(NOTIFICATION_ID)

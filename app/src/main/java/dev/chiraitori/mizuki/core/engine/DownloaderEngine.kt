@@ -15,6 +15,7 @@ import dev.chiraitori.mizuki.service.DownloadService
 import dev.chiraitori.mizuki.service.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
 class DownloaderEngine private constructor(private val appContext: Context) {
@@ -33,6 +35,8 @@ class DownloaderEngine private constructor(private val appContext: Context) {
 
     private val _tasks = MutableStateFlow<List<DownloadTask>>(emptyList())
     val tasks: StateFlow<List<DownloadTask>> = _tasks.asStateFlow()
+    private val photoTaskInputs = ConcurrentHashMap<String, PhotoTaskInput>()
+    private val photoTaskJobs = ConcurrentHashMap<String, Job>()
 
     private val concurrencySemaphore = Semaphore(
         SettingsRepository.getInstance(appContext).appPrefsFlow.value.maxConcurrentDownloads.coerceIn(1, 5)
@@ -68,6 +72,41 @@ class DownloaderEngine private constructor(private val appContext: Context) {
             processTask(taskId)
         }
 
+        return taskId
+    }
+
+    /**
+     * Photo posts use direct image URLs instead of yt-dlp, but still belong to
+     * the same engine so dismissing a picker never cancels the download.
+     */
+    fun enqueuePhotoTask(
+        postId: String,
+        url: String,
+        title: String,
+        author: String? = null,
+        thumbnailUrl: String? = null,
+        imageUrls: List<String>
+    ): String {
+        require(imageUrls.isNotEmpty()) { "Photo task requires at least one image" }
+
+        val taskId = "task_${UUID.randomUUID()}"
+        val config = DownloadConfig(
+            type = dev.chiraitori.mizuki.core.model.DownloadType.IMAGE,
+            privateMode = SettingsRepository.getInstance(appContext).appPrefsFlow.value.privateMode
+        )
+        val task = DownloadTask(
+            id = taskId,
+            url = url,
+            title = title,
+            author = author,
+            thumbnailUrl = thumbnailUrl,
+            status = TaskStatus.IDLE,
+            config = config
+        )
+
+        photoTaskInputs[taskId] = PhotoTaskInput(postId, imageUrls)
+        _tasks.update { it + task }
+        photoTaskJobs[taskId] = scope.launch { processPhotoTask(taskId) }
         return taskId
     }
 
@@ -241,7 +280,125 @@ class DownloaderEngine private constructor(private val appContext: Context) {
         }
     }
 
+    private suspend fun processPhotoTask(taskId: String) {
+        try {
+            concurrencySemaphore.withPermit {
+                val currentTask = _tasks.value.find { it.id == taskId } ?: return@withPermit
+                val input = photoTaskInputs[taskId] ?: return@withPermit
+                if (currentTask.status == TaskStatus.CANCELED) return@withPermit
+
+                if (currentTask.config.wifiOnly && !isWifiConnected()) {
+                    updateTask(taskId) {
+                        it.copy(
+                            status = TaskStatus.FAILED,
+                            errorMessage = "Đang bật chế độ 'Chỉ tải qua Wi-Fi', vui lòng kết nối Wi-Fi để tiếp tục"
+                        )
+                    }
+                    return@withPermit
+                }
+
+                updateTask(taskId) {
+                    it.copy(status = TaskStatus.DOWNLOADING, progress = 0f, rawLogs = listOf("[Mizuki] Đang tải ảnh..."))
+                }
+                DownloadService.start(
+                    context = appContext,
+                    title = currentTask.title,
+                    statusText = "Đang tải ${input.imageUrls.size} ảnh...",
+                    progress = 0,
+                    taskId = taskId
+                )
+
+                var lastNotificationUpdateAt = 0L
+                var lastNotificationProgress = -1
+                val result = TikTokPhotoDownloader.download(
+                    context = appContext,
+                    postId = input.postId,
+                    title = currentTask.title,
+                    imageUrls = input.imageUrls
+                ) { completed, total, currentFraction ->
+                    if (_tasks.value.find { it.id == taskId }?.status == TaskStatus.CANCELED) return@download
+
+                    val progress = if (total == 0) 0f else ((completed + currentFraction) / total * 100f).coerceIn(0f, 99f)
+                    updateTask(taskId) {
+                        it.copy(
+                            status = TaskStatus.DOWNLOADING,
+                            progress = progress,
+                            rawLogs = listOf("[Mizuki] Đang tải ảnh ${(completed + 1).coerceAtMost(total)}/$total")
+                        )
+                    }
+
+                    val progressInt = progress.toInt()
+                    val now = System.currentTimeMillis()
+                    if (progressInt != lastNotificationProgress && now - lastNotificationUpdateAt >= 1_000L) {
+                        lastNotificationProgress = progressInt
+                        lastNotificationUpdateAt = now
+                        NotificationHelper.notifyProgress(
+                            context = appContext,
+                            title = currentTask.title,
+                            progress = progressInt,
+                            text = "$progressInt% • Ảnh ${(completed + 1).coerceAtMost(total)}/$total",
+                            taskId = taskId
+                        )
+                    }
+                }
+
+                if (_tasks.value.find { it.id == taskId }?.status == TaskStatus.CANCELED) return@withPermit
+
+                if (result.saved.isEmpty()) {
+                    updateTask(taskId) {
+                        it.copy(
+                            status = TaskStatus.FAILED,
+                            errorMessage = "Không thể tải ảnh",
+                            rawLogs = listOf("[Mizuki] Không tải được ảnh nào")
+                        )
+                    }
+                    val nextActiveTask = firstActiveTask()
+                    if (nextActiveTask == null) NotificationHelper.cancelNotification(appContext) else publishLiveNotification(nextActiveTask)
+                    return@withPermit
+                }
+
+                updateTask(taskId) {
+                    it.copy(
+                        status = TaskStatus.COMPLETED,
+                        progress = 100f,
+                        filePath = result.saved.first().uri.toString(),
+                        rawLogs = listOf("[Mizuki] Đã tải ${result.saved.size}/${input.imageUrls.size} ảnh")
+                    )
+                }
+
+                if (!currentTask.config.privateMode) {
+                    dbHelper.insertOrUpdateAll(result.saved.mapIndexed { index, photo ->
+                        DownloadedMedia(
+                            id = "${input.postId}_photo_${photo.displayName}",
+                            title = "${currentTask.title} (${index + 1}/${result.saved.size})",
+                            uploader = currentTask.author,
+                            thumbnailUrl = photo.uri.toString(),
+                            filePath = photo.uri.toString(),
+                            fileSize = photo.byteCount,
+                            originalUrl = currentTask.url,
+                            type = dev.chiraitori.mizuki.core.model.DownloadType.IMAGE
+                        )
+                    })
+                }
+
+                val nextActiveTask = firstActiveTask()
+                NotificationHelper.finishPhotoNotification(
+                    context = appContext,
+                    title = currentTask.title,
+                    photoCount = result.saved.size,
+                    taskId = taskId,
+                    cancelLiveNotification = nextActiveTask == null
+                )
+                nextActiveTask?.let(::publishLiveNotification)
+            }
+        } finally {
+            photoTaskJobs.remove(taskId)
+            stopServiceIfIdle()
+        }
+    }
+
     fun cancelTask(taskId: String) {
+        photoTaskJobs[taskId]?.cancel()
         YtDlpWrapper.cancel(taskId)
         updateTask(taskId) { it.copy(status = TaskStatus.CANCELED, speed = "", eta = "") }
         val nextActiveTask = firstActiveTask()
@@ -256,8 +413,10 @@ class DownloaderEngine private constructor(private val appContext: Context) {
     fun retryTask(taskId: String) {
         val task = _tasks.value.find { it.id == taskId } ?: return
         updateTask(taskId) { it.copy(status = TaskStatus.IDLE, progress = 0f, errorMessage = null, rawLogs = emptyList()) }
-        scope.launch {
-            processTask(taskId)
+        if (photoTaskInputs.containsKey(taskId)) {
+            photoTaskJobs[taskId] = scope.launch { processPhotoTask(taskId) }
+        } else {
+            scope.launch { processTask(taskId) }
         }
     }
 
@@ -267,6 +426,8 @@ class DownloaderEngine private constructor(private val appContext: Context) {
             cancelTask(taskId)
         }
         _tasks.update { tasks -> tasks.filter { it.id != taskId } }
+        photoTaskInputs.remove(taskId)
+        photoTaskJobs.remove(taskId)
     }
 
     fun clearFinishedTasks() {
@@ -305,6 +466,11 @@ class DownloaderEngine private constructor(private val appContext: Context) {
     private fun stopServiceIfIdle() {
         if (firstActiveTask() == null) DownloadService.stop(appContext)
     }
+
+    private data class PhotoTaskInput(
+        val postId: String,
+        val imageUrls: List<String>
+    )
 
     companion object {
         private const val TAG = "DownloaderEngine"

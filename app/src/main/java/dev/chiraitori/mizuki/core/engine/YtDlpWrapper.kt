@@ -223,6 +223,7 @@ object YtDlpWrapper {
                     }
                 } else if (config.directStreamUrl.isNullOrEmpty()) {
                     when (config.type) {
+                        DownloadType.IMAGE -> error("Image downloads use TikTokPhotoDownloader")
                         DownloadType.AUDIO -> {
                             addOption("-x")
                             addOption("--audio-format", if (globalPrefs.keepOriginalAudio) "best" else config.audioFormat.ext)

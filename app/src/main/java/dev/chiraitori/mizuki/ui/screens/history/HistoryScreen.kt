@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
@@ -159,32 +161,41 @@ fun HistoryScreen() {
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { FilterChip(
                     selected = selectedFilter == null,
                     onClick = { selectedFilter = null },
                     label = { Text("Tất cả (${allMedia.size})", fontWeight = FontWeight.Medium) },
                     modifier = Modifier.bounceOnTouch(),
                     shape = RoundedCornerShape(12.dp)
-                )
+                ) }
 
-                FilterChip(
+                item { FilterChip(
                     selected = selectedFilter == DownloadType.VIDEO,
                     onClick = { selectedFilter = if (selectedFilter == DownloadType.VIDEO) null else DownloadType.VIDEO },
                     label = { Text("Video", fontWeight = FontWeight.Medium) },
                     leadingIcon = { Icon(Icons.Rounded.Movie, contentDescription = null, modifier = Modifier.size(16.dp)) },
                     modifier = Modifier.bounceOnTouch(),
                     shape = RoundedCornerShape(12.dp)
-                )
+                ) }
 
-                FilterChip(
+                item { FilterChip(
                     selected = selectedFilter == DownloadType.AUDIO,
                     onClick = { selectedFilter = if (selectedFilter == DownloadType.AUDIO) null else DownloadType.AUDIO },
                     label = { Text("Audio", fontWeight = FontWeight.Medium) },
                     leadingIcon = { Icon(Icons.Rounded.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp)) },
                     modifier = Modifier.bounceOnTouch(),
                     shape = RoundedCornerShape(12.dp)
-                )
+                ) }
+
+                item { FilterChip(
+                    selected = selectedFilter == DownloadType.IMAGE,
+                    onClick = { selectedFilter = if (selectedFilter == DownloadType.IMAGE) null else DownloadType.IMAGE },
+                    label = { Text("Ảnh", fontWeight = FontWeight.Medium) },
+                    leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    modifier = Modifier.bounceOnTouch(),
+                    shape = RoundedCornerShape(12.dp)
+                ) }
             }
         }
 
@@ -242,13 +253,16 @@ fun HistoryScreen() {
                 Button(
                     onClick = {
                         try {
-                            val file = File(item.filePath)
-                            if (file.exists()) {
-                                file.delete()
+                            val isContentUri = item.filePath.startsWith("content://")
+                            if (isContentUri) {
+                                context.contentResolver.delete(Uri.parse(item.filePath), null, null)
+                            } else {
+                                val file = File(item.filePath)
+                                if (file.exists()) file.delete()
                             }
 
                             // Remove from Android MediaStore indexes
-                            try {
+                            if (!isContentUri) try {
                                 val resolver = context.contentResolver
                                 resolver.delete(
                                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -275,11 +289,13 @@ fun HistoryScreen() {
                             } catch (_: Exception) {}
 
                             // Notify MediaScanner that file is gone
-                            MediaScannerConnection.scanFile(
-                                context,
-                                arrayOf(item.filePath),
-                                null
-                            ) { _, _ -> }
+                            if (!isContentUri) {
+                                MediaScannerConnection.scanFile(
+                                    context,
+                                    arrayOf(item.filePath),
+                                    null
+                                ) { _, _ -> }
+                            }
 
                             dbHelper.deleteMedia(item.id)
                             Toast.makeText(context, "Đã xóa vĩnh viễn tệp", Toast.LENGTH_SHORT).show()
@@ -310,21 +326,36 @@ fun HistoryItemCard(
 ) {
     val context = LocalContext.current
 
-    fun openMedia() {
+    fun mediaMimeType(): String = when (media.type) {
+        DownloadType.AUDIO -> "audio/*"
+        DownloadType.IMAGE -> "image/*"
+        else -> "video/*"
+    }
+
+    fun resolveMediaUri(): Uri? {
+        if (media.filePath.startsWith("content://")) {
+            val uri = Uri.parse(media.filePath)
+            return try {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { uri }
+            } catch (_: Exception) {
+                null
+            }
+        }
         val file = File(media.filePath)
-        if (!file.exists()) {
+        if (!file.exists()) return null
+        return FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    }
+
+    fun openMedia() {
+        val uri = resolveMediaUri()
+        if (uri == null) {
             Toast.makeText(context, "File không tồn tại trên bộ nhớ", Toast.LENGTH_SHORT).show()
             return
         }
 
         try {
-            val uri: Uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider",
-                file
-            )
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, if (media.type == DownloadType.AUDIO) "audio/*" else "video/*")
+                setDataAndType(uri, mediaMimeType())
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(intent)
@@ -334,17 +365,11 @@ fun HistoryItemCard(
     }
 
     fun shareMedia() {
-        val file = File(media.filePath)
-        if (!file.exists()) return
+        val uri = resolveMediaUri() ?: return
 
         try {
-            val uri: Uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider",
-                file
-            )
             val intent = Intent(Intent.ACTION_SEND).apply {
-                type = if (media.type == DownloadType.AUDIO) "audio/*" else "video/*"
+                type = mediaMimeType()
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -404,7 +429,11 @@ fun HistoryItemCard(
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
                         ) {
                             Text(
-                                text = if (media.type == DownloadType.AUDIO) "AUDIO" else "VIDEO HD",
+                                text = when (media.type) {
+                                    DownloadType.AUDIO -> "AUDIO"
+                                    DownloadType.IMAGE -> "IMAGE"
+                                    else -> "VIDEO HD"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
