@@ -14,10 +14,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.CancellationException
 
 class MizukiApplication : Application() {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private lateinit var engineInitialization: Deferred<Result<Unit>>
+
+    suspend fun awaitEngines() {
+        engineInitialization.await().getOrThrow()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -28,14 +36,21 @@ class MizukiApplication : Application() {
     }
 
     private fun initEngines() {
-        applicationScope.launch {
+        engineInitialization = applicationScope.async {
             try {
                 YoutubeDL.getInstance().init(this@MizukiApplication)
                 FFmpeg.getInstance().init(this@MizukiApplication)
                 Aria2c.getInstance().init(this@MizukiApplication)
                 Log.d(TAG, "YoutubeDL, FFmpeg & Aria2c initialized successfully")
+                Result.success(Unit)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: LinkageError) {
+                Log.e(TAG, "Engine runtime could not be initialized", e)
+                Result.failure(IllegalStateException("Không thể khởi tạo bộ tải. Vui lòng cập nhật ứng dụng.", e))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialize YoutubeDL / FFmpeg / Aria2c", e)
+                Result.failure(IllegalStateException("Không thể khởi tạo bộ tải: ${e.message}", e))
             }
         }
     }

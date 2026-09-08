@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.util.Log
+import dev.chiraitori.mizuki.MizukiApplication
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import dev.chiraitori.mizuki.core.model.AudioFormat
@@ -50,6 +51,7 @@ object YtDlpWrapper {
 
         // Tier 2: yt-dlp Native Engine Extraction (Seal architecture)
         try {
+            MizukiApplication.instance.awaitEngines()
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-playlist")
                 addOption("--no-check-certificates")
@@ -157,6 +159,13 @@ object YtDlpWrapper {
             isProcessing: Boolean
         ) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            MizukiApplication.instance.awaitEngines()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext Result.failure(e)
+        }
         val globalPrefs = SettingsRepository.getInstance(context).appPrefsFlow.value
         val outputDir = if (!config.customOutDir.isNullOrEmpty()) {
             File(config.customOutDir).also { if (!it.exists()) it.mkdirs() }
@@ -545,6 +554,7 @@ object YtDlpWrapper {
 
     suspend fun updateEngine(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
+            MizukiApplication.instance.awaitEngines()
             val status = YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)
             Result.success(status.toString())
         } catch (e: Exception) {
