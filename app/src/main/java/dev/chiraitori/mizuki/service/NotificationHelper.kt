@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.core.content.FileProvider
 import dev.chiraitori.mizuki.MainActivity
+import dev.chiraitori.mizuki.core.model.DownloadType
 import java.io.File
 
 object NotificationHelper {
@@ -167,6 +168,46 @@ object NotificationHelper {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
+    internal fun resolveShareableMediaUri(context: Context, filePath: String): Uri? {
+        if (filePath.isBlank()) return null
+        if (filePath.startsWith("content://")) {
+            return runCatching { Uri.parse(filePath) }.getOrNull()
+        }
+        val file = File(filePath)
+        if (!file.exists()) return null
+        return runCatching {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                file
+            )
+        }.getOrElse { error ->
+            Log.w(TAG, "Failed to resolve FileProvider URI for $filePath: ${error.message}")
+            null
+        }
+    }
+
+    internal fun detectMediaMimeType(
+        context: Context,
+        filePath: String,
+        downloadType: DownloadType? = null
+    ): String {
+        if (filePath.startsWith("content://")) {
+            val resolvedType = runCatching {
+                context.contentResolver.getType(Uri.parse(filePath))
+            }.getOrNull()
+            if (!resolvedType.isNullOrBlank()) return resolvedType
+        }
+        val ext = File(filePath).extension.lowercase()
+        return when {
+            ext in AUDIO_EXTENSIONS -> "audio/*"
+            ext in IMAGE_EXTENSIONS -> "image/*"
+            downloadType == DownloadType.AUDIO -> "audio/*"
+            downloadType == DownloadType.IMAGE -> "image/*"
+            else -> "video/*"
+        }
+    }
+
     fun finishNotification(
         context: Context,
         title: String,
@@ -180,23 +221,29 @@ object NotificationHelper {
         val completionId = COMPLETION_NOTIFICATION_BASE +
             ((taskId.hashCode() and Int.MAX_VALUE) % COMPLETION_NOTIFICATION_RANGE)
 
-        val file = File(filePath)
-        val openIntent = Intent(Intent.ACTION_VIEW).apply {
-            val uri: Uri = FileProvider.getUriForFile(
+        val uri = resolveShareableMediaUri(context, filePath)
+        val openPendingIntent = if (uri != null) {
+            val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, detectMediaMimeType(context, filePath))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            PendingIntent.getActivity(
                 context,
-                "${context.packageName}.provider",
-                file
+                completionId,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val mime = if (file.extension.equals("mp3", ignoreCase = true) || file.extension.equals("m4a", ignoreCase = true)) "audio/*" else "video/*"
-            setDataAndType(uri, mime)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } else {
+            val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            PendingIntent.getActivity(
+                context,
+                completionId,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         }
-        val openPendingIntent = PendingIntent.getActivity(
-            context,
-            completionId,
-            openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         val completeNotification = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -248,6 +295,8 @@ object NotificationHelper {
         manager.cancel(NOTIFICATION_ID)
     }
 
+    private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "opus", "ogg", "flac", "wav", "aac")
+    private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "avif")
     private const val COMPLETION_NOTIFICATION_BASE = 2_000
     private const val COMPLETION_NOTIFICATION_RANGE = 1_000_000
 }

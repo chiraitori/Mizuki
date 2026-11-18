@@ -3,7 +3,6 @@ package dev.chiraitori.mizuki.ui.screens.home
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -86,7 +85,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import dev.chiraitori.mizuki.R
 import dev.chiraitori.mizuki.core.engine.DownloaderEngine
@@ -99,15 +97,16 @@ import dev.chiraitori.mizuki.core.model.TaskStatus
 import dev.chiraitori.mizuki.core.model.VideoDetails
 import dev.chiraitori.mizuki.core.parser.UrlParser
 import dev.chiraitori.mizuki.data.repository.SettingsRepository
+import dev.chiraitori.mizuki.service.NotificationHelper
 import dev.chiraitori.mizuki.ui.components.FormatSelectionDialog
 import dev.chiraitori.mizuki.ui.components.PlaylistSelectionDialog
 import dev.chiraitori.mizuki.ui.components.TaskLogDialog
 import dev.chiraitori.mizuki.ui.components.TikTokPhotoSelectionDialog
 import dev.chiraitori.mizuki.ui.components.bounceClick
 import dev.chiraitori.mizuki.ui.components.bounceOnTouch
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
-import java.io.File
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 internal class HomeScreenState(initialUrl: String?) {
     val inputUrl = mutableStateOf(initialUrl.orEmpty())
@@ -119,6 +118,7 @@ internal class HomeScreenState(initialUrl: String?) {
     val showPlaylistDialog = mutableStateOf(false)
     val taskForLogs = mutableStateOf<DownloadTask?>(null)
     val handledInitialUrl = mutableStateOf<String?>(null)
+    var analyzeJob: Job? = null
 }
 
 @Composable
@@ -164,23 +164,30 @@ internal fun HomeScreen(
         }
 
         inputUrl = extracted
-        scope.launch {
+        homeState.analyzeJob?.cancel()
+        homeState.analyzeJob = scope.launch {
+            val currentJob = coroutineContext[Job]
             isAnalyzing = true
             analyzeError = null
             videoDetails = null
 
-            val result = YtDlpWrapper.fetchVideoDetails(extracted)
-            result.onSuccess {
-                videoDetails = it
-                if (it.isPlaylist && it.playlistItems.isNotEmpty()) {
-                    showPlaylistDialog = true
-                } else if (it.imageUrls.isNotEmpty()) {
-                    showPhotoDialog = true
+            try {
+                val result = YtDlpWrapper.fetchVideoDetails(extracted)
+                result.onSuccess {
+                    videoDetails = it
+                    if (it.isPlaylist && it.playlistItems.isNotEmpty()) {
+                        showPlaylistDialog = true
+                    } else if (it.imageUrls.isNotEmpty()) {
+                        showPhotoDialog = true
+                    }
+                }.onFailure {
+                    analyzeError = it.message ?: "Không thể lấy thông tin video"
                 }
-            }.onFailure {
-                analyzeError = it.message ?: "Không thể lấy thông tin video"
+            } finally {
+                if (homeState.analyzeJob === currentJob) {
+                    isAnalyzing = false
+                }
             }
-            isAnalyzing = false
         }
     }
 
@@ -201,12 +208,7 @@ internal fun HomeScreen(
 
     fun startDownloadWithConfig(config: DownloadConfig) {
         val details = videoDetails ?: return
-        val directUrl = if (config.type == DownloadType.AUDIO && !details.directAudioUrl.isNullOrEmpty()) {
-            details.directAudioUrl
-        } else {
-            details.directDownloadUrl
-        }
-        val finalConfig = config.copy(directStreamUrl = directUrl)
+        val finalConfig = YtDlpWrapper.resolveConfigForDetails(details, config)
 
         downloaderEngine.enqueueTask(
             url = details.originalUrl,
@@ -339,6 +341,7 @@ internal fun HomeScreen(
 
                         Button(
                             onClick = { analyze(inputUrl) },
+                            enabled = !isAnalyzing,
                             modifier = Modifier
                                 .bounceOnTouch()
                                 .weight(1f)
@@ -754,18 +757,20 @@ fun ActiveTaskItemCard(
                         task.filePath?.let { path ->
                             FilledTonalIconButton(
                                 onClick = {
-                                    val file = File(path)
-                                    if (file.exists()) {
-                                        val uri = FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.provider",
-                                            file
-                                        )
+                                    val uri = NotificationHelper.resolveShareableMediaUri(context, path)
+                                    if (uri == null) {
+                                        Toast.makeText(context, "File không tồn tại trên bộ nhớ", Toast.LENGTH_SHORT).show()
+                                        return@FilledTonalIconButton
+                                    }
+                                    val mime = NotificationHelper.detectMediaMimeType(context, path, task.config.type)
+                                    try {
                                         val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(uri, if (file.extension == "mp3") "audio/*" else "video/*")
+                                            setDataAndType(uri, mime)
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Không thể mở file: ${e.message}", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 modifier = Modifier

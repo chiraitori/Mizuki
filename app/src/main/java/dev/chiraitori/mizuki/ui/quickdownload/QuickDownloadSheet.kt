@@ -2,8 +2,6 @@
 
 package dev.chiraitori.mizuki.ui.quickdownload
 
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,12 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Audiotrack
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
@@ -52,7 +46,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MotionScheme
@@ -64,7 +57,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -76,12 +68,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import dev.chiraitori.mizuki.R
 import dev.chiraitori.mizuki.core.engine.DownloaderEngine
@@ -95,7 +85,6 @@ import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import dev.chiraitori.mizuki.ui.components.FormatSelectionDialog
 import dev.chiraitori.mizuki.ui.components.TikTokPhotoQuickPicker
 import kotlinx.coroutines.launch
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,10 +105,6 @@ fun QuickDownloadSheet(
     var status by remember { mutableStateOf(TaskStatus.FETCHING_INFO) }
     var videoDetails by remember { mutableStateOf<VideoDetails?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var progress by remember { mutableFloatStateOf(0f) }
-    var speedText by remember { mutableStateOf("") }
-    var etaText by remember { mutableStateOf("") }
-    var downloadedFile by remember { mutableStateOf<File?>(null) }
     var showFormatDialog by remember { mutableStateOf(false) }
 
     // The photo strip already owns horizontal drag. Keeping a parent vertical
@@ -151,13 +136,7 @@ fun QuickDownloadSheet(
 
     fun startDownload(config: DownloadConfig) {
         val details = videoDetails ?: return
-
-        val directUrl = if (config.type == DownloadType.AUDIO && !details.directAudioUrl.isNullOrEmpty()) {
-            details.directAudioUrl
-        } else {
-            details.directDownloadUrl
-        }
-        val finalConfig = config.copy(directStreamUrl = directUrl)
+        val finalConfig = YtDlpWrapper.resolveConfigForDetails(details, config)
 
         downloaderEngine.enqueueTask(
             url = details.originalUrl,
@@ -334,130 +313,6 @@ fun QuickDownloadSheet(
                                 }
                             }
                         }
-                        }
-                    }
-                }
-
-                TaskStatus.DOWNLOADING, TaskStatus.PROCESSING -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        videoDetails?.let { details ->
-                            VideoPreviewCardDetails(details = details, compact = true)
-                            Spacer(modifier = Modifier.height(16.dp))
-                        }
-
-                        LinearProgressIndicator(
-                            progress = { if (progress > 0f) progress / 100f else 0f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(CircleShape)
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = if (progress > 0f) "${progress.toInt()}%" else "Đang tải...",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            if (speedText.isNotEmpty()) {
-                                Text(
-                                    text = "$speedText ${if (etaText.isNotEmpty()) "• $etaText" else ""}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-
-                TaskStatus.COMPLETED -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(60.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(14.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = "Tải thành công!",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Lưu tại Downloads/Mizuki",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            downloadedFile?.let { file ->
-                                Button(
-                                    onClick = {
-                                        val uri = FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.provider",
-                                            file
-                                        )
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(
-                                                uri,
-                                                if (file.extension == "mp3") "audio/*" else "video/*"
-                                            )
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(intent)
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Mở xem", fontSize = 13.sp)
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = onDismiss,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                Text("Đóng", fontSize = 13.sp)
-                            }
                         }
                     }
                 }

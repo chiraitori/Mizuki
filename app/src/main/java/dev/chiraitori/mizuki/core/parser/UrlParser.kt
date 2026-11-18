@@ -39,24 +39,40 @@ object UrlParser {
         VIMEO("Vimeo")
     }
 
+    internal fun extractHost(rawUrl: String): String? {
+        val trimmed = (extractUrl(rawUrl) ?: rawUrl.trim()).lowercase()
+        if (trimmed.isEmpty() || !trimmed.contains(".")) return null
+        val withoutScheme = trimmed
+            .removePrefix("https://")
+            .removePrefix("http://")
+        val authority = withoutScheme
+            .substringBefore('/')
+            .substringBefore('?')
+            .substringBefore('#')
+            .substringAfterLast('@')
+            .substringBefore(':')
+            .trim('.')
+        return authority.takeIf { it.contains('.') }
+    }
+
+    private fun String.matchesDomain(vararg domains: String): Boolean =
+        domains.any { domain -> this == domain || this.endsWith(".$domain") }
+
     fun detectPlatform(url: String): Platform? {
-        val lower = url.lowercase().trim()
-        if (!lower.contains("http://") && !lower.contains("https://") && !lower.contains(".")) {
-            return null
-        }
+        val host = extractHost(url) ?: return null
         return when {
-            lower.contains("tiktok.com") || lower.contains("douyin.com") -> Platform.TIKTOK
-            lower.contains("youtube.com") || lower.contains("youtu.be") -> Platform.YOUTUBE
-            lower.contains("facebook.com") || lower.contains("fb.watch") || lower.contains("fb.com") -> Platform.FACEBOOK
-            lower.contains("instagram.com") -> Platform.INSTAGRAM
-            lower.contains("twitter.com") || lower.contains("x.com") || lower.contains("t.co") -> Platform.TWITTER_X
-            lower.contains("bilibili.com") || lower.contains("b23.tv") -> Platform.BILIBILI
-            lower.contains("reddit.com") || lower.contains("redd.it") -> Platform.REDDIT
-            lower.contains("threads.net") -> Platform.THREADS
-            lower.contains("pinterest.com") || lower.contains("pin.it") -> Platform.PINTEREST
-            lower.contains("twitch.tv") -> Platform.TWITCH
-            lower.contains("soundcloud.com") -> Platform.SOUNDCLOUD
-            lower.contains("vimeo.com") -> Platform.VIMEO
+            host.matchesDomain("tiktok.com", "douyin.com") -> Platform.TIKTOK
+            host.matchesDomain("youtube.com", "youtu.be") -> Platform.YOUTUBE
+            host.matchesDomain("facebook.com", "fb.watch", "fb.com") -> Platform.FACEBOOK
+            host.matchesDomain("instagram.com") -> Platform.INSTAGRAM
+            host.matchesDomain("twitter.com", "x.com", "t.co") -> Platform.TWITTER_X
+            host.matchesDomain("bilibili.com", "b23.tv") -> Platform.BILIBILI
+            host.matchesDomain("reddit.com", "redd.it") -> Platform.REDDIT
+            host.matchesDomain("threads.net", "threads.com") -> Platform.THREADS
+            host.matchesDomain("pinterest.com", "pin.it") -> Platform.PINTEREST
+            host.matchesDomain("twitch.tv") -> Platform.TWITCH
+            host.matchesDomain("soundcloud.com") -> Platform.SOUNDCLOUD
+            host.matchesDomain("vimeo.com") -> Platform.VIMEO
             else -> null
         }
     }

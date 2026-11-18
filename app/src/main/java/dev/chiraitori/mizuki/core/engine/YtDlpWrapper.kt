@@ -7,6 +7,7 @@ import android.util.Log
 import dev.chiraitori.mizuki.MizukiApplication
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import dev.chiraitori.mizuki.core.cookies.CookieManager
 import dev.chiraitori.mizuki.core.model.AudioFormat
 import dev.chiraitori.mizuki.core.model.DownloadConfig
 import dev.chiraitori.mizuki.core.model.DownloadType
@@ -14,6 +15,7 @@ import dev.chiraitori.mizuki.core.model.StreamFormat
 import dev.chiraitori.mizuki.core.model.VideoDetails
 import dev.chiraitori.mizuki.core.model.VideoResolution
 import dev.chiraitori.mizuki.core.parser.UrlParser
+import dev.chiraitori.mizuki.data.repository.AppPreferences
 import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,15 +53,26 @@ object YtDlpWrapper {
 
         // Tier 2: yt-dlp Native Engine Extraction (Seal architecture)
         try {
-            MizukiApplication.instance.awaitEngines()
+            val appContext = MizukiApplication.instance
+            appContext.awaitEngines()
+            val globalPrefs = SettingsRepository.getInstance(appContext).appPrefsFlow.value
+            val userAgent = globalPrefs.customUserAgent.ifBlank {
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            }
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-playlist")
                 addOption("--no-check-certificates")
                 addOption("--geo-bypass")
                 addOption("-R", "2")
                 addOption("--socket-timeout", "10")
-                addOption("--add-header", "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+                addOption("--add-header", "User-Agent:$userAgent")
                 addOption("--add-header", "Accept-Language:en-US,en;q=0.9,vi;q=0.8")
+                resolveCookieFile(appContext, globalPrefs.downloadConfig.cookiesFilePath)?.let {
+                    addOption("--cookies", it.absolutePath)
+                }
+                if (globalPrefs.forceIpv4) addOption("-4")
+                if (globalPrefs.proxyUrl.isNotBlank()) addOption("--proxy", globalPrefs.proxyUrl)
+                if (globalPrefs.extractorArgs.isNotBlank()) addOption("--extractor-args", globalPrefs.extractorArgs)
             }
 
             val videoInfo = YoutubeDL.getInstance().getInfo(request)
@@ -179,7 +192,9 @@ object YtDlpWrapper {
         // A private per-task prefix prevents concurrent downloads from claiming
         // each other's newest file. It is removed after yt-dlp fully finishes.
         val outputPrefix = ".mizuki_${processId.replace(Regex("[^A-Za-z0-9_-]"), "_")}."
-        val configuredTemplate = config.outputTemplate.ifBlank { "%(title).200B.%(ext)s" }
+        val configuredTemplate = config.outputTemplate
+            .ifBlank { globalPrefs.downloadConfig.outputTemplate }
+            .ifBlank { "%(title).200B.%(ext)s" }
         val outputTemplate = addTaskPrefix(configuredTemplate, outputPrefix)
 
         try {
@@ -226,11 +241,8 @@ object YtDlpWrapper {
                     if (config.embedMetadata) {
                         addOption("--add-metadata")
                     }
-                    if (config.embedThumbnail) {
-                        addOption("--embed-thumbnail")
-                        addOption("--convert-thumbnails", "jpg")
-                    }
-                } else if (config.directStreamUrl.isNullOrEmpty()) {
+                    applyThumbnailAndCrop(config, globalPrefs, isAudioMode = config.type == DownloadType.AUDIO)
+                } else {
                     when (config.type) {
                         DownloadType.IMAGE -> error("Image downloads use TikTokPhotoDownloader")
                         DownloadType.AUDIO -> {
@@ -244,27 +256,26 @@ object YtDlpWrapper {
                                 addOption("--parse-metadata", "%(album,title)s:%(meta_album)s")
                                 addOption("--parse-metadata", "%(release_year,upload_date)s:%(meta_date)s")
                             }
-                            if (config.embedThumbnail) {
-                                addOption("--embed-thumbnail")
-                                addOption("--convert-thumbnails", "jpg")
-                            }
+                            applyThumbnailAndCrop(config, globalPrefs, isAudioMode = true)
                         }
                         DownloadType.CUSTOM -> {
                             // Custom mode - relies on customArgs
                         }
                         DownloadType.VIDEO -> {
-                            val resSorter = if (config.videoResolution.height > 0) "res:${config.videoResolution.height}" else ""
-                            val codecSorter = when (globalPrefs.videoCodec) {
-                                "H264" -> "vcodec:h264"
-                                "VP9" -> "vcodec:vp9"
-                                "AV1" -> "vcodec:av01"
-                                else -> ""
-                            }
-                            if (resSorter.isNotEmpty() || globalPrefs.videoCodec != "ANY") {
-                                addOption("-S", listOf(resSorter, codecSorter, "ext").filter { it.isNotEmpty() }.joinToString(","))
-                            }
+                            if (config.directStreamUrl.isNullOrEmpty()) {
+                                val resSorter = if (config.videoResolution.height > 0) "res:${config.videoResolution.height}" else ""
+                                val codecSorter = when (globalPrefs.videoCodec) {
+                                    "H264" -> "vcodec:h264"
+                                    "VP9" -> "vcodec:vp9"
+                                    "AV1" -> "vcodec:av01"
+                                    else -> ""
+                                }
+                                if (resSorter.isNotEmpty() || globalPrefs.videoCodec != "ANY") {
+                                    addOption("-S", listOf(resSorter, codecSorter, "ext").filter { it.isNotEmpty() }.joinToString(","))
+                                }
 
-                            addOption("-f", "bv*+ba/b")
+                                addOption("-f", "bv*+ba/b")
+                            }
                             addOption(
                                 "--merge-output-format",
                                 if (globalPrefs.videoContainer == "ANY") "mp4/mkv" else globalPrefs.videoContainer.lowercase()
@@ -274,10 +285,7 @@ object YtDlpWrapper {
                                 addOption("--add-metadata")
                                 addOption("--no-embed-info-json")
                             }
-                            if (config.embedThumbnail) {
-                                addOption("--embed-thumbnail")
-                                addOption("--convert-thumbnails", "jpg")
-                            }
+                            applyThumbnailAndCrop(config, globalPrefs, isAudioMode = false)
                         }
                     }
                 }
@@ -291,7 +299,7 @@ object YtDlpWrapper {
                 }
 
                 // SponsorBlock integration
-                if (config.removeSponsorSegments) {
+                if (config.removeSponsorSegments || globalPrefs.downloadConfig.removeSponsorSegments) {
                     val categories = if (config.sponsorBlockCategories.isNotBlank()) config.sponsorBlockCategories else globalPrefs.sponsorBlockCategories
                     addOption("--sponsorblock-remove", categories.ifBlank { "sponsor,selfpromo,intro,outro" })
                 }
@@ -319,11 +327,8 @@ object YtDlpWrapper {
                 }
 
                 // Cookies support
-                if (!config.cookiesFilePath.isNullOrEmpty()) {
-                    val cookieFile = File(config.cookiesFilePath)
-                    if (cookieFile.exists()) {
-                        addOption("--cookies", cookieFile.absolutePath)
-                    }
+                resolveCookieFile(context, config.cookiesFilePath ?: globalPrefs.downloadConfig.cookiesFilePath)?.let {
+                    addOption("--cookies", it.absolutePath)
                 }
 
                 if (globalPrefs.forceIpv4) addOption("-4")
@@ -515,18 +520,130 @@ object YtDlpWrapper {
         }
     }
 
-    private fun parseCustomArguments(args: String): List<Pair<String, String?>> {
+    private fun resolveCookieFile(context: Context, configuredPath: String?): File? {
+        val explicit = configuredPath
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::File)
+            ?.takeIf { it.exists() && it.length() > 0 }
+        if (explicit != null) return explicit
+        return CookieManager.getCookieFile(context).takeIf { it.exists() && it.length() > 0 }
+    }
+
+    private fun YoutubeDLRequest.applyThumbnailAndCrop(
+        config: DownloadConfig,
+        globalPrefs: AppPreferences,
+        isAudioMode: Boolean
+    ) {
+        if (!config.embedThumbnail) return
+        addOption("--embed-thumbnail")
+        addOption("--convert-thumbnails", "jpg")
+        if (isAudioMode && (config.cropArtworkSquare || globalPrefs.downloadConfig.cropArtworkSquare)) {
+            addOption("--ppa", "EmbedThumbnail+ffmpeg_o:-c:v mjpeg -vf crop='min(iw,ih):min(iw,ih)'")
+        }
+    }
+
+    private val SYNTHETIC_DIRECT_PREFIXES = listOf("direct_", "twitter_", "instagram_", "reddit_")
+
+    internal fun resolveConfigForDetails(details: VideoDetails, config: DownloadConfig): DownloadConfig {
+        if (!config.selectedFormatId.isNullOrEmpty()) {
+            val matchedFormat = details.formats.find { it.formatId == config.selectedFormatId }
+            val isSyntheticDirectFormat = matchedFormat != null &&
+                !matchedFormat.directUrl.isNullOrBlank() &&
+                SYNTHETIC_DIRECT_PREFIXES.any { matchedFormat.formatId.startsWith(it) }
+            if (isSyntheticDirectFormat) {
+                return config.copy(
+                    selectedFormatId = null,
+                    directStreamUrl = matchedFormat!!.directUrl
+                )
+            }
+            return config.copy(directStreamUrl = null)
+        }
+
+        val requiresYtDlpExtraction = (config.type == DownloadType.VIDEO && config.videoResolution != VideoResolution.BEST) ||
+            config.removeSponsorSegments ||
+            config.embedSubtitles ||
+            !config.clipSectionStart.isNullOrBlank() ||
+            !config.clipSectionEnd.isNullOrBlank()
+
+        if (requiresYtDlpExtraction) {
+            return config.copy(directStreamUrl = null)
+        }
+
+        val directUrl = if (config.type == DownloadType.AUDIO && !details.directAudioUrl.isNullOrEmpty()) {
+            details.directAudioUrl
+        } else {
+            details.directDownloadUrl
+        }
+        return config.copy(directStreamUrl = directUrl)
+    }
+
+    private data class CliToken(val text: String, val startedWithQuote: Boolean)
+
+    private fun tokenizeCliArgs(args: String): List<CliToken> {
+        val tokens = mutableListOf<CliToken>()
+        val current = StringBuilder()
+        var activeQuote: Char? = null
+        var hasTokenContent = false
+        var startedWithQuote = false
+
+        var i = 0
+        while (i < args.length) {
+            val ch = args[i]
+            when {
+                activeQuote != null -> {
+                    if (ch == '\\' && i + 1 < args.length && args[i + 1] == activeQuote) {
+                        current.append(args[i + 1])
+                        i += 2
+                        continue
+                    } else if (ch == activeQuote) {
+                        activeQuote = null
+                    } else {
+                        current.append(ch)
+                    }
+                }
+                ch == '"' || ch == '\'' -> {
+                    if (!hasTokenContent) startedWithQuote = true
+                    activeQuote = ch
+                    hasTokenContent = true
+                }
+                ch.isWhitespace() -> {
+                    if (hasTokenContent) {
+                        tokens.add(CliToken(current.toString(), startedWithQuote))
+                        current.clear()
+                        hasTokenContent = false
+                        startedWithQuote = false
+                    }
+                }
+                else -> {
+                    current.append(ch)
+                    hasTokenContent = true
+                }
+            }
+            i++
+        }
+        if (hasTokenContent) {
+            tokens.add(CliToken(current.toString(), startedWithQuote))
+        }
+        return tokens
+    }
+
+    internal fun parseCustomArguments(args: String): List<Pair<String, String?>> {
+        if (args.isBlank()) return emptyList()
         val result = mutableListOf<Pair<String, String?>>()
-        val tokens = args.trim().split(Regex("\\s+"))
+        val tokens = tokenizeCliArgs(args)
         var i = 0
         while (i < tokens.size) {
             val token = tokens[i]
-            if (token.startsWith("-")) {
-                if (i + 1 < tokens.size && !tokens[i + 1].startsWith("-")) {
-                    result.add(token to tokens[i + 1])
+            if (!token.startedWithQuote && token.text.startsWith("-")) {
+                if (token.text.startsWith("--") && token.text.contains("=")) {
+                    val eqIdx = token.text.indexOf('=')
+                    result.add(token.text.substring(0, eqIdx) to token.text.substring(eqIdx + 1))
+                    i += 1
+                } else if (i + 1 < tokens.size && (tokens[i + 1].startedWithQuote || !tokens[i + 1].text.startsWith("-"))) {
+                    result.add(token.text to tokens[i + 1].text)
                     i += 2
                 } else {
-                    result.add(token to null)
+                    result.add(token.text to null)
                     i += 1
                 }
             } else {
@@ -555,7 +672,13 @@ object YtDlpWrapper {
     suspend fun updateEngine(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
             MizukiApplication.instance.awaitEngines()
-            val status = YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)
+            val channelPref = SettingsRepository.getInstance(context).appPrefsFlow.value.updateChannel
+            val channel = when (channelPref.uppercase()) {
+                "NIGHTLY" -> YoutubeDL.UpdateChannel._NIGHTLY
+                "MASTER" -> YoutubeDL.UpdateChannel._MASTER
+                else -> YoutubeDL.UpdateChannel._STABLE
+            }
+            val status = YoutubeDL.getInstance().updateYoutubeDL(context, channel)
             Result.success(status.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update yt-dlp: ${e.message}", e)

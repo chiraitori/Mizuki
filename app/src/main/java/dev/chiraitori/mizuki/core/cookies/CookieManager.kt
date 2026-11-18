@@ -3,6 +3,7 @@ package dev.chiraitori.mizuki.core.cookies
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import dev.chiraitori.mizuki.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -28,6 +29,11 @@ object CookieManager {
         return file.exists() && file.length() > 0
     }
 
+    private fun syncCookiePathSetting(context: Context, cookiePath: String?) {
+        val repo = SettingsRepository.getInstance(context)
+        repo.updateConfig(repo.loadConfig().copy(cookiesFilePath = cookiePath))
+    }
+
     suspend fun importCookies(context: Context, uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val inputStream: InputStream = context.contentResolver.openInputStream(uri)
@@ -38,6 +44,8 @@ object CookieManager {
                 inputStream.copyTo(output)
             }
             inputStream.close()
+
+            syncCookiePathSetting(context, targetFile.absolutePath)
 
             val linesCount = targetFile.readLines().count { line ->
                 line.isNotBlank() && !line.startsWith("#")
@@ -54,6 +62,7 @@ object CookieManager {
         try {
             val targetFile = getCookieFile(context)
             targetFile.writeText(text)
+            syncCookiePathSetting(context, targetFile.absolutePath)
             val linesCount = targetFile.readLines().count { line ->
                 line.isNotBlank() && !line.startsWith("#")
             }
@@ -66,6 +75,7 @@ object CookieManager {
 
     fun clearCookies(context: Context): Boolean {
         val file = getCookieFile(context)
+        syncCookiePathSetting(context, null)
         return if (file.exists()) file.delete() else true
     }
 

@@ -9,8 +9,13 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -76,11 +81,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -116,18 +123,34 @@ fun SetupScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val motionScheme = remember { MotionScheme.expressive() }
     val settingsRepo = remember { SettingsRepository.getInstance(context) }
     val appPrefs by settingsRepo.appPrefsFlow.collectAsState()
 
     val pagerState = rememberPagerState(pageCount = { 4 })
 
-    var hasNotificationPermission by remember {
-        mutableStateOf(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-            } else true
-        )
+    fun checkNotificationGranted(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
+
+    fun checkBatteryIgnored(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+    }
+
+    var hasNotificationPermission by remember { mutableStateOf(checkNotificationGranted()) }
+    var isBatteryOptimizationIgnored by remember { mutableStateOf(checkBatteryIgnored()) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotificationPermission = checkNotificationGranted()
+                isBatteryOptimizationIgnored = checkBatteryIgnored()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val notificationLauncher = rememberLauncherForActivityResult(
@@ -136,138 +159,142 @@ fun SetupScreen(
         hasNotificationPermission = granted
     }
 
-    Surface(
+    BackHandler(enabled = pagerState.currentPage > 0) {
+        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+    }
+
+    Scaffold(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        Column(
+        containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            SetupBottomBar(
+                currentPage = pagerState.currentPage,
+                pageCount = pagerState.pageCount,
+                onBack = {
+                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                },
+                onNext = {
+                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                },
+                onFinish = onFinishSetup
+            )
+        }
+    ) { contentPadding ->
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .padding(contentPadding),
+            userScrollEnabled = false
+        ) { page ->
+            when (page) {
+                0 -> WelcomePage()
+                1 -> PermissionsAndStoragePage(
+                    hasNotification = hasNotificationPermission,
+                    isBatteryOptimizationIgnored = isBatteryOptimizationIgnored,
+                    onRequestNotification = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                )
+                2 -> EngineAndDownloadPage()
+                3 -> PersonalizationPage(
+                    dynamicColor = appPrefs.dynamicColor,
+                    onDynamicColorChange = {
+                        settingsRepo.updateAppPreferences(appPrefs.copy(dynamicColor = it))
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupBottomBar(
+    currentPage: Int,
+    pageCount: Int,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+    onFinish: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
                 .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header Stepper Indicator (PixelPlayer Expressive Style)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                repeat(pageCount) { index ->
+                    val segmentWeight by animateFloatAsState(
+                        targetValue = if (index == currentPage) 2.5f else 1f,
+                        label = "setup_progress_segment"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(segmentWeight)
+                            .height(5.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (index <= currentPage) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (pagerState.currentPage > 0) {
-                    IconButton(
-                        onClick = {
-                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
-                        }
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.action_back))
-                    }
-                } else {
-                    Spacer(modifier = Modifier.size(48.dp))
-                }
-
-                // Step Dots
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(4) { pageIndex ->
-                        val isCurrent = pagerState.currentPage == pageIndex
-                        val width by animateFloatAsState(
-                            targetValue = if (isCurrent) 28f else 8f,
-                            animationSpec = motionScheme.defaultSpatialSpec(),
-                            label = "dotWidth"
-                        )
-                        val dotColor by animateColorAsState(
-                            targetValue = if (isCurrent) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            animationSpec = motionScheme.fastEffectsSpec(),
-                            label = "dotColor"
-                        )
-                        Box(
-                            modifier = Modifier
-                                .height(8.dp)
-                                .width(width.dp)
-                                .clip(CircleShape)
-                                .background(dotColor)
+                if (currentPage > 0) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 }
 
-                TextButton(
-                    onClick = onFinishSetup
-                ) {
-                    Text(stringResource(R.string.action_skip), fontWeight = FontWeight.SemiBold)
-                }
-            }
-
-            // Pager Content
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                userScrollEnabled = true
-            ) { page ->
-                when (page) {
-                    0 -> WelcomePage()
-                    1 -> PermissionsAndStoragePage(
-                        hasNotification = hasNotificationPermission,
-                        onRequestNotification = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                        }
-                    )
-                    2 -> EngineAndDownloadPage()
-                    3 -> PersonalizationPage(
-                        dynamicColor = appPrefs.dynamicColor,
-                        onDynamicColorChange = {
-                            settingsRepo.updateAppPreferences(appPrefs.copy(dynamicColor = it))
-                        }
-                    )
-                }
-            }
-
-            // Bottom Navigation Actions
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (pagerState.currentPage < 3) {
+                AnimatedContent(
+                    targetState = currentPage,
+                    modifier = Modifier.weight(1f),
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "setup_step_label"
+                ) { page ->
                     Text(
-                        text = stringResource(R.string.setup_step, pagerState.currentPage + 1, 4),
-                        modifier = Modifier.weight(1f).padding(end = 12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (page == 0) stringResource(R.string.setup_welcome_title)
+                        else stringResource(R.string.setup_step, page + 1, pageCount),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                }
 
-                    Button(
-                        onClick = {
-                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        contentPadding = ButtonDefaults.ContentPadding
-                    ) {
+                Button(
+                    onClick = if (currentPage == pageCount - 1) onFinish else onNext,
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    if (currentPage == pageCount - 1) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.setup_start), fontWeight = FontWeight.Bold)
+                    } else {
                         Text(stringResource(R.string.action_continue), fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }
-                } else {
-                    Button(
-                        onClick = onFinishSetup,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp)
-                    ) {
-                        Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.setup_start), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }
@@ -399,6 +426,7 @@ private fun SetupFeatureRow(
 @Composable
 private fun PermissionsAndStoragePage(
     hasNotification: Boolean,
+    isBatteryOptimizationIgnored: Boolean,
     onRequestNotification: () -> Unit
 ) {
     val context = LocalContext.current
@@ -454,7 +482,7 @@ private fun PermissionsAndStoragePage(
             title = stringResource(R.string.setup_battery_title),
             description = stringResource(R.string.setup_battery_summary),
             icon = Icons.Rounded.BatteryChargingFull,
-            isGranted = false,
+            isGranted = isBatteryOptimizationIgnored,
             onGrant = {
                 try {
                     val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)

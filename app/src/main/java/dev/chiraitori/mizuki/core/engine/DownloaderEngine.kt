@@ -38,12 +38,31 @@ class DownloaderEngine private constructor(private val appContext: Context) {
     private val photoTaskInputs = ConcurrentHashMap<String, PhotoTaskInput>()
     private val photoTaskJobs = ConcurrentHashMap<String, Job>()
 
-    private val concurrencySemaphore = Semaphore(
-        SettingsRepository.getInstance(appContext).appPrefsFlow.value.maxConcurrentDownloads.coerceIn(1, 5)
-    )
+    private val semaphoreLock = Any()
+    @Volatile
+    private var currentMaxConcurrent = SettingsRepository.getInstance(appContext)
+        .appPrefsFlow.value.maxConcurrentDownloads.coerceIn(1, 5)
+    @Volatile
+    private var concurrencySemaphore = Semaphore(currentMaxConcurrent)
 
     init {
         NotificationHelper.createChannels(appContext)
+    }
+
+    private fun getConcurrencySemaphore(): Semaphore {
+        val desired = SettingsRepository.getInstance(appContext)
+            .appPrefsFlow.value.maxConcurrentDownloads.coerceIn(1, 5)
+        if (desired != currentMaxConcurrent && firstActiveTask() == null) {
+            synchronized(semaphoreLock) {
+                if (desired != currentMaxConcurrent && firstActiveTask() == null &&
+                    concurrencySemaphore.availablePermits == currentMaxConcurrent
+                ) {
+                    currentMaxConcurrent = desired
+                    concurrencySemaphore = Semaphore(desired)
+                }
+            }
+        }
+        return concurrencySemaphore
     }
 
     fun enqueueTask(
@@ -117,13 +136,19 @@ class DownloaderEngine private constructor(private val appContext: Context) {
         return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
     }
 
+    private fun isBlockedByWifiPolicy(task: DownloadTask): Boolean {
+        val wifiOnly = task.config.wifiOnly ||
+            SettingsRepository.getInstance(appContext).appPrefsFlow.value.downloadConfig.wifiOnly
+        return wifiOnly && !isWifiConnected()
+    }
+
     private suspend fun processTask(taskId: String) {
-        concurrencySemaphore.withPermit {
+        getConcurrencySemaphore().withPermit {
             val currentTask = _tasks.value.find { it.id == taskId } ?: return@withPermit
             if (currentTask.status == TaskStatus.CANCELED) return@withPermit
 
             // Check Wi-Fi only restriction
-            if (currentTask.config.wifiOnly && !isWifiConnected()) {
+            if (isBlockedByWifiPolicy(currentTask)) {
                 updateTask(taskId) {
                     it.copy(
                         status = TaskStatus.FAILED,
@@ -282,12 +307,12 @@ class DownloaderEngine private constructor(private val appContext: Context) {
 
     private suspend fun processPhotoTask(taskId: String) {
         try {
-            concurrencySemaphore.withPermit {
+            getConcurrencySemaphore().withPermit {
                 val currentTask = _tasks.value.find { it.id == taskId } ?: return@withPermit
                 val input = photoTaskInputs[taskId] ?: return@withPermit
                 if (currentTask.status == TaskStatus.CANCELED) return@withPermit
 
-                if (currentTask.config.wifiOnly && !isWifiConnected()) {
+                if (isBlockedByWifiPolicy(currentTask)) {
                     updateTask(taskId) {
                         it.copy(
                             status = TaskStatus.FAILED,

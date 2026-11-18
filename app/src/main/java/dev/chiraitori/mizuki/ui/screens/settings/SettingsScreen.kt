@@ -1756,7 +1756,14 @@ fun SettingsScreen(
     }
 
     if (showTemplateDialog) {
-        CommandTemplateDialog(onDismiss = { showTemplateDialog = false })
+        CommandTemplateDialog(
+            onDismiss = { showTemplateDialog = false },
+            onSelectTemplate = { tmpl ->
+                settingsRepo.updateConfig(config.copy(customArgs = tmpl.customArgs))
+                showTemplateDialog = false
+                Toast.makeText(context, "Đã áp dụng mẫu: ${tmpl.name}", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     if (showResetDialog) {

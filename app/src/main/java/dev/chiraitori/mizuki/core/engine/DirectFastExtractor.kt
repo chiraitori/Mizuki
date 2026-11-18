@@ -3,6 +3,7 @@ package dev.chiraitori.mizuki.core.engine
 import android.util.Log
 import dev.chiraitori.mizuki.core.model.StreamFormat
 import dev.chiraitori.mizuki.core.model.VideoDetails
+import dev.chiraitori.mizuki.core.parser.UrlParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -18,13 +19,12 @@ object DirectFastExtractor {
     private const val USER_AGENT_ANDROID = "com.zhiliaoapp.musically/2022600030 (Linux; U; Android 14; en_US; Pixel 8; Build/UQ1A.240205.004; Cronet/58.0.2991.0)"
 
     suspend fun tryDirectExtract(url: String): Result<VideoDetails>? = withContext(Dispatchers.IO) {
-        val lower = url.lowercase()
         try {
-            when {
-                lower.contains("tiktok.com") || lower.contains("douyin.com") -> extractTikTok(url)
-                lower.contains("twitter.com") || lower.contains("x.com") -> extractTwitter(url)
-                lower.contains("instagram.com") -> extractInstagram(url)
-                lower.contains("reddit.com") || lower.contains("redd.it") -> extractReddit(url)
+            when (UrlParser.detectPlatform(url)) {
+                UrlParser.Platform.TIKTOK -> extractTikTok(url)
+                UrlParser.Platform.TWITTER_X -> extractTwitter(url)
+                UrlParser.Platform.INSTAGRAM -> extractInstagram(url)
+                UrlParser.Platform.REDDIT -> extractReddit(url)
                 else -> null
             }
         } catch (e: Exception) {
@@ -335,6 +335,7 @@ object DirectFastExtractor {
             val author = post.optString("author", "Reddit User")
             val media = post.optJSONObject("secure_media") ?: post.optJSONObject("media")
             val redditVideo = media?.optJSONObject("reddit_video") ?: return null
+            if (!redditVideo.optBoolean("is_gif", false)) return null
 
             val fallbackUrl = redditVideo.getString("fallback_url")
             val duration = redditVideo.optLong("duration", 0)

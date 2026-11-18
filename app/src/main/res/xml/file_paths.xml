@@ -2,5 +2,9 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="external_downloads" path="Download/" />
     <external-path name="external_mizuki" path="Download/Mizuki/" />
+    <external-path name="external_music" path="Music/" />
+    <external-path name="external_pictures" path="Pictures/" />
+    <external-path name="external_movies" path="Movies/" />
+    <external-path name="external_root" path="." />
     <external-files-path name="external_files" path="." />
 </paths>

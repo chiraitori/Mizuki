@@ -11,13 +11,13 @@ class NotificationReceiver : BroadcastReceiver() {
         val action = intent.action
         if (action == ACTION_CANCEL_TASK) {
             val taskId = intent.getStringExtra(EXTRA_TASK_ID)
-            val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
 
-            if (taskId != null) {
+            if (!taskId.isNullOrEmpty()) {
                 val engine = DownloaderEngine.getInstance(context.applicationContext)
                 engine.cancelTask(taskId)
+            } else {
+                NotificationHelper.cancelNotification(context)
             }
-            NotificationHelper.cancelNotification(context)
         }
     }
 

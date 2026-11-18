@@ -4,7 +4,10 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import dev.chiraitori.mizuki.core.engine.YtDlpWrapper
+import dev.chiraitori.mizuki.core.model.AudioFormat
+import dev.chiraitori.mizuki.core.model.CommandTemplate
 import dev.chiraitori.mizuki.core.model.DownloadType
+import dev.chiraitori.mizuki.core.model.VideoResolution
 import dev.chiraitori.mizuki.data.local.DownloadedMedia
 import dev.chiraitori.mizuki.data.local.MediaDatabaseHelper
 import dev.chiraitori.mizuki.data.repository.SettingsRepository
@@ -13,7 +16,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -104,6 +106,48 @@ object BackupManager {
 
             val dbHelper = MediaDatabaseHelper.getInstance(context)
             var restoredCount = 0
+
+            if (rootJson.has("settings")) {
+                val cfgObj = rootJson.getJSONObject("settings")
+                val settingsRepo = SettingsRepository.getInstance(context)
+                val current = settingsRepo.loadConfig()
+                val restoredConfig = current.copy(
+                    videoResolution = runCatching {
+                        VideoResolution.valueOf(cfgObj.optString("videoResolution", current.videoResolution.name))
+                    }.getOrDefault(current.videoResolution),
+                    audioFormat = runCatching {
+                        AudioFormat.valueOf(cfgObj.optString("audioFormat", current.audioFormat.name))
+                    }.getOrDefault(current.audioFormat),
+                    useAria2c = cfgObj.optBoolean("useAria2c", current.useAria2c),
+                    aria2cConnections = cfgObj.optInt("aria2cConnections", current.aria2cConnections).coerceIn(1, 32),
+                    embedThumbnail = cfgObj.optBoolean("embedThumbnail", current.embedThumbnail),
+                    embedSubtitles = cfgObj.optBoolean("embedSubtitles", current.embedSubtitles),
+                    embedMetadata = cfgObj.optBoolean("embedMetadata", current.embedMetadata),
+                    wifiOnly = cfgObj.optBoolean("wifiOnly", current.wifiOnly)
+                )
+                settingsRepo.updateConfig(restoredConfig)
+            }
+
+            if (rootJson.has("templates")) {
+                val templatesArray = rootJson.getJSONArray("templates")
+                for (i in 0 until templatesArray.length()) {
+                    val obj = templatesArray.optJSONObject(i) ?: continue
+                    val id = obj.optString("id")
+                    val name = obj.optString("name")
+                    val customArgs = obj.optString("customArgs")
+                    if (id.isNotBlank() && name.isNotBlank() && customArgs.isNotBlank()) {
+                        dbHelper.saveTemplate(
+                            CommandTemplate(
+                                id = id,
+                                name = name,
+                                description = obj.optString("description", ""),
+                                customArgs = customArgs,
+                                isBuiltIn = obj.optBoolean("isBuiltIn", false)
+                            )
+                        )
+                    }
+                }
+            }
 
             if (rootJson.has("media")) {
                 val mediaArray = rootJson.getJSONArray("media")

@@ -528,7 +528,7 @@ fun FormatSelectionDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val config = DownloadConfig(
+                    val config = initialConfig.copy(
                         type = selectedType,
                         videoResolution = selectedRes,
                         selectedFormatId = selectedFormatId,
