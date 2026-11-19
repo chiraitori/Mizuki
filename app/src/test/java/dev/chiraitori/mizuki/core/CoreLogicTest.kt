@@ -79,6 +79,12 @@ class CoreLogicTest {
         assertEquals("4K (2160p) @60fps", uhd.resolutionLabel)
         assertEquals("Video (AV1)", uhd.codecLabel)
 
+        val portraitHd = StreamFormat("direct_tiktok_hd", "mp4", width = 1080, height = 1920, fps = 60.0, vcodec = "h264", hasBoth = true)
+        assertEquals("1080p @60fps", portraitHd.resolutionLabel)
+
+        val portraitSd = StreamFormat("direct_tiktok_sd", "mp4", width = 720, height = 1280, fps = 30.0, vcodec = "h264", hasBoth = true)
+        assertEquals("720p", portraitSd.resolutionLabel)
+
         val audio = StreamFormat("251", "webm", acodec = "opus", tbr = 160.4, isAudioOnly = true)
         assertEquals("Audio (~160 kbps)", audio.resolutionLabel)
         assertEquals("Audio (Opus)", audio.codecLabel)
@@ -86,43 +92,148 @@ class CoreLogicTest {
 
     @Test
     fun resolveConfigForDetails_handlesSyntheticDirectAndYtDlpFormats() {
-        val details = VideoDetails(
-            id = "123",
-            title = "Sample",
-            originalUrl = "https://www.tiktok.com/@u/video/123",
-            directDownloadUrl = "https://cdn.example.com/video.mp4",
-            directAudioUrl = "https://cdn.example.com/audio.mp3",
+        val tiktokDetails = VideoDetails(
+            id = "7709731262977658120",
+            title = "TikTok Sample",
+            originalUrl = "https://vt.tiktok.com/ZSp3BGV9f/",
+            directDownloadUrl = "https://cdn.example.com/tiktok_hd.mp4",
+            directAudioUrl = "https://cdn.example.com/tiktok_audio.mp3",
             formats = listOf(
-                StreamFormat("direct_tiktok_hd", "mp4", height = 1080, directUrl = "https://cdn.example.com/video_hd.mp4"),
-                StreamFormat("direct_tiktok_audio", "mp3", isAudioOnly = true, directUrl = "https://cdn.example.com/audio.mp3"),
-                StreamFormat("137", "mp4", height = 1080, vcodec = "avc1.640028", isVideoOnly = true)
+                StreamFormat("direct_tiktok_hd", "mp4", width = 1080, height = 1920, directUrl = "https://cdn.example.com/tiktok_hd.mp4"),
+                StreamFormat("direct_tiktok_sd", "mp4", width = 720, height = 1280, directUrl = "https://cdn.example.com/tiktok_sd.mp4"),
+                StreamFormat("direct_tiktok_audio", "mp3", isAudioOnly = true, directUrl = "https://cdn.example.com/tiktok_audio.mp3")
             )
         )
 
+        val tiktokWithGlobalOptions = YtDlpWrapper.resolveConfigForDetails(
+            tiktokDetails,
+            DownloadConfig(
+                type = DownloadType.VIDEO,
+                videoResolution = VideoResolution.RES_1080P,
+                removeSponsorSegments = true,
+                embedSubtitles = true,
+                clipSectionStart = "00:00:01",
+                clipSectionEnd = "00:00:05"
+            )
+        )
+        assertEquals("https://cdn.example.com/tiktok_hd.mp4", tiktokWithGlobalOptions.directStreamUrl)
+
+        val tiktokBest = YtDlpWrapper.resolveConfigForDetails(
+            tiktokDetails,
+            DownloadConfig(type = DownloadType.VIDEO, videoResolution = VideoResolution.BEST)
+        )
+        assertEquals("https://cdn.example.com/tiktok_hd.mp4", tiktokBest.directStreamUrl)
+
+        val tiktokSd = YtDlpWrapper.resolveConfigForDetails(
+            tiktokDetails,
+            DownloadConfig(type = DownloadType.VIDEO, videoResolution = VideoResolution.RES_720P)
+        )
+        assertEquals("https://cdn.example.com/tiktok_sd.mp4", tiktokSd.directStreamUrl)
+
         val syntheticAudio = YtDlpWrapper.resolveConfigForDetails(
-            details,
+            tiktokDetails,
             DownloadConfig(type = DownloadType.AUDIO, selectedFormatId = "direct_tiktok_audio")
         )
         assertNull(syntheticAudio.selectedFormatId)
-        assertEquals("https://cdn.example.com/audio.mp3", syntheticAudio.directStreamUrl)
+        assertEquals("https://cdn.example.com/tiktok_audio.mp3", syntheticAudio.directStreamUrl)
 
+        val defaultAudio = YtDlpWrapper.resolveConfigForDetails(
+            tiktokDetails,
+            DownloadConfig(type = DownloadType.AUDIO)
+        )
+        assertEquals("https://cdn.example.com/tiktok_audio.mp3", defaultAudio.directStreamUrl)
+
+        val twitterDirectOnly = VideoDetails(
+            id = "999",
+            title = "Twitter Clip",
+            originalUrl = "https://x.com/user/status/999",
+            directDownloadUrl = "https://cdn.example.com/twitter.mp4",
+            formats = listOf(
+                StreamFormat("twitter_hd", "mp4", height = 1080, directUrl = "https://cdn.example.com/twitter.mp4")
+            )
+        )
+        val twitterWithGlobals = YtDlpWrapper.resolveConfigForDetails(
+            twitterDirectOnly,
+            DownloadConfig(
+                type = DownloadType.VIDEO,
+                videoResolution = VideoResolution.RES_720P,
+                removeSponsorSegments = true,
+                embedSubtitles = true
+            )
+        )
+        assertEquals("https://cdn.example.com/twitter.mp4", twitterWithGlobals.directStreamUrl)
+
+        val customMode = YtDlpWrapper.resolveConfigForDetails(
+            twitterDirectOnly,
+            DownloadConfig(type = DownloadType.CUSTOM)
+        )
+        assertNull(customMode.directStreamUrl)
+
+        val mixedYtDlpDetails = VideoDetails(
+            id = "yt1",
+            title = "YouTube Clip",
+            originalUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            directDownloadUrl = "https://cdn.example.com/default.mp4",
+            formats = listOf(
+                StreamFormat("137", "mp4", height = 1080, vcodec = "avc1.640028", isVideoOnly = true)
+            )
+        )
         val realFormat = YtDlpWrapper.resolveConfigForDetails(
-            details,
+            mixedYtDlpDetails,
             DownloadConfig(type = DownloadType.VIDEO, selectedFormatId = "137")
         )
         assertEquals("137", realFormat.selectedFormatId)
         assertNull(realFormat.directStreamUrl)
 
         val resOverride = YtDlpWrapper.resolveConfigForDetails(
-            details,
+            mixedYtDlpDetails,
             DownloadConfig(type = DownloadType.VIDEO, videoResolution = VideoResolution.RES_720P)
         )
         assertNull(resOverride.directStreamUrl)
+    }
 
-        val defaultAudio = YtDlpWrapper.resolveConfigForDetails(
-            details,
-            DownloadConfig(type = DownloadType.AUDIO)
+    @Test
+    fun buildOutputTemplate_sanitizesDirectStreamTitlesAndPreservesStaticFolders() {
+        val prefix = ".mizuki_task_1."
+
+        assertEquals(
+            ".mizuki_task_1.100%% Fun_ Video_Name_.%(ext)s",
+            YtDlpWrapper.buildOutputTemplate(
+                configuredTemplate = "%(title)s.%(ext)s",
+                outputPrefix = prefix,
+                title = " 100% Fun: Video/Name? ",
+                isDirectStream = true
+            )
         )
-        assertEquals("https://cdn.example.com/audio.mp3", defaultAudio.directStreamUrl)
+
+        assertEquals(
+            ".mizuki_task_1.Clean Title.%(ext)s",
+            YtDlpWrapper.buildOutputTemplate(
+                configuredTemplate = "%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s",
+                outputPrefix = prefix,
+                title = "Clean Title",
+                isDirectStream = true
+            )
+        )
+
+        assertEquals(
+            "TikTok/.mizuki_task_1.Clean Title.%(ext)s",
+            YtDlpWrapper.buildOutputTemplate(
+                configuredTemplate = "TikTok/%(title)s.%(ext)s",
+                outputPrefix = prefix,
+                title = "Clean Title",
+                isDirectStream = true
+            )
+        )
+
+        assertEquals(
+            "%(playlist)s/.mizuki_task_1.%(title)s.%(ext)s",
+            YtDlpWrapper.buildOutputTemplate(
+                configuredTemplate = "%(playlist)s/%(title)s.%(ext)s",
+                outputPrefix = prefix,
+                title = "Ignored When Extractor",
+                isDirectStream = false
+            )
+        )
     }
 }

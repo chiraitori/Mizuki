@@ -34,12 +34,15 @@ data class StreamFormat(
     val directUrl: String? = null
 ) {
     val resolutionLabel: String
-        get() = when {
-            height >= 2160 -> "4K (2160p)" + (if (fps > 30) " @${fps.toInt()}fps" else "")
-            height >= 1440 -> "2K (1440p)" + (if (fps > 30) " @${fps.toInt()}fps" else "")
-            height > 0 -> "${height}p" + (if (fps > 30) " @${fps.toInt()}fps" else "")
-            isAudioOnly -> if (tbr > 0) "Audio (~${tbr.toInt()} kbps)" else "Audio (${cleanCodec(acodec)})"
-            else -> formatNote ?: ext.uppercase()
+        get() {
+            val qualityHeight = if (width > 0 && height > 0) minOf(width, height) else height
+            return when {
+                qualityHeight >= 2160 -> "4K (2160p)" + (if (fps > 30) " @${fps.toInt()}fps" else "")
+                qualityHeight >= 1440 -> "2K (1440p)" + (if (fps > 30) " @${fps.toInt()}fps" else "")
+                qualityHeight > 0 -> "${qualityHeight}p" + (if (fps > 30) " @${fps.toInt()}fps" else "")
+                isAudioOnly -> if (tbr > 0) "Audio (~${tbr.toInt()} kbps)" else "Audio (${cleanCodec(acodec)})"
+                else -> formatNote ?: ext.uppercase()
+            }
         }
 
     val codecLabel: String

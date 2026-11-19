@@ -17,13 +17,19 @@ import dev.chiraitori.mizuki.core.model.VideoResolution
 import dev.chiraitori.mizuki.core.parser.UrlParser
 import dev.chiraitori.mizuki.data.repository.AppPreferences
 import dev.chiraitori.mizuki.data.repository.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.coroutineContext
 
 object YtDlpWrapper {
 
     private const val TAG = "YtDlpWrapper"
+    private val canceledProcessIds = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     fun getDefaultDownloadDir(): File {
         val publicDownloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -172,38 +178,154 @@ object YtDlpWrapper {
             isProcessing: Boolean
         ) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
+        canceledProcessIds.remove(processId)
         try {
-            MizukiApplication.instance.awaitEngines()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return@withContext Result.failure(e)
-        }
-        val globalPrefs = SettingsRepository.getInstance(context).appPrefsFlow.value
-        val outputDir = if (!config.customOutDir.isNullOrEmpty()) {
-            File(config.customOutDir).also { if (!it.exists()) it.mkdirs() }
-        } else if (config.type == DownloadType.AUDIO && !globalPrefs.separateAudioDir.isNullOrEmpty()) {
-            File(globalPrefs.separateAudioDir).also { if (!it.exists()) it.mkdirs() }
-        } else {
-            getDefaultDownloadDir()
-        }
-        val tempDir = getTempDownloadDir(context)
-
-        // A private per-task prefix prevents concurrent downloads from claiming
-        // each other's newest file. It is removed after yt-dlp fully finishes.
-        val outputPrefix = ".mizuki_${processId.replace(Regex("[^A-Za-z0-9_-]"), "_")}."
-        val configuredTemplate = config.outputTemplate
-            .ifBlank { globalPrefs.downloadConfig.outputTemplate }
-            .ifBlank { "%(title).200B.%(ext)s" }
-        val outputTemplate = addTaskPrefix(configuredTemplate, outputPrefix)
-
-        try {
-            val downloadUrl = if (!config.directStreamUrl.isNullOrEmpty()) {
-                config.directStreamUrl
-            } else {
-                url
+            try {
+                MizukiApplication.instance.awaitEngines()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
             }
 
+            val globalPrefs = SettingsRepository.getInstance(context).appPrefsFlow.value
+            val outputDir = if (!config.customOutDir.isNullOrEmpty()) {
+                File(config.customOutDir).also { if (!it.exists()) it.mkdirs() }
+            } else if (config.type == DownloadType.AUDIO && !globalPrefs.separateAudioDir.isNullOrEmpty()) {
+                File(globalPrefs.separateAudioDir).also { if (!it.exists()) it.mkdirs() }
+            } else {
+                getDefaultDownloadDir()
+            }
+            val tempDir = getTempDownloadDir(context)
+
+            // A private per-task prefix prevents concurrent downloads from claiming
+            // each other's newest file. It is removed after yt-dlp fully finishes.
+            val outputPrefix = ".mizuki_${processId.replace(Regex("[^A-Za-z0-9_-]"), "_")}."
+            val configuredTemplate = config.outputTemplate
+                .ifBlank { globalPrefs.downloadConfig.outputTemplate }
+                .ifBlank { "%(title).200B.%(ext)s" }
+
+            var resolvedDirectUrl = config.directStreamUrl?.takeIf { it.isNotBlank() }
+            if (resolvedDirectUrl == null &&
+                UrlParser.detectPlatform(url) == UrlParser.Platform.TIKTOK &&
+                config.type != DownloadType.CUSTOM &&
+                config.selectedFormatId.isNullOrBlank()
+            ) {
+                val details = DirectFastExtractor.tryDirectExtract(url)?.getOrNull()
+                if (details != null) {
+                    resolvedDirectUrl = resolveConfigForDetails(details, config).directStreamUrl
+                }
+            }
+
+            val initialDownloadUrl = resolvedDirectUrl ?: url
+            val initialIsDirectStream = resolvedDirectUrl != null
+
+            val firstResult = runDownloadAttempt(
+                context = context,
+                downloadUrl = initialDownloadUrl,
+                isDirectStream = initialIsDirectStream,
+                useAria2cForAttempt = config.useAria2c,
+                title = title,
+                config = config,
+                globalPrefs = globalPrefs,
+                outputDir = outputDir,
+                tempDir = tempDir,
+                outputPrefix = outputPrefix,
+                configuredTemplate = configuredTemplate,
+                processId = processId,
+                onProgress = onProgress
+            )
+
+            if (firstResult.isSuccess || canceledProcessIds.contains(processId) || !coroutineContext.isActive) {
+                return@withContext firstResult
+            }
+
+            if (initialIsDirectStream) {
+                if (UrlParser.detectPlatform(url) == UrlParser.Platform.TIKTOK) {
+                    Log.w(
+                        TAG,
+                        "Direct TikTok download failed (${firstResult.exceptionOrNull()?.message}), retrying with standard stream and native downloader"
+                    )
+                    val fallbackDetails = DirectFastExtractor.tryDirectExtract(url, preferStandardPlay = true)?.getOrNull()
+                    if (canceledProcessIds.contains(processId) || !coroutineContext.isActive) {
+                        return@withContext firstResult
+                    }
+                    val fallbackUrl = when {
+                        fallbackDetails == null -> initialDownloadUrl
+                        config.type == DownloadType.AUDIO ->
+                            fallbackDetails.directAudioUrl?.takeIf { it.isNotBlank() } ?: fallbackDetails.directDownloadUrl
+                        else -> fallbackDetails.directDownloadUrl
+                    }?.takeIf { it.isNotBlank() }
+
+                    if (fallbackUrl != null && (fallbackUrl != initialDownloadUrl || config.useAria2c)) {
+                        onProgress(0f, "", "", "[Mizuki] Đang thử lại bằng luồng dự phòng...", false)
+                        return@withContext runDownloadAttempt(
+                            context = context,
+                            downloadUrl = fallbackUrl,
+                            isDirectStream = true,
+                            useAria2cForAttempt = false,
+                            title = title,
+                            config = config,
+                            globalPrefs = globalPrefs,
+                            outputDir = outputDir,
+                            tempDir = tempDir,
+                            outputPrefix = outputPrefix,
+                            configuredTemplate = configuredTemplate,
+                            processId = processId,
+                            onProgress = onProgress
+                        )
+                    }
+                } else if (config.useAria2c) {
+                    Log.w(TAG, "Direct download with aria2c failed, retrying with native downloader")
+                    onProgress(0f, "", "", "[Mizuki] Đang thử lại bằng trình tải mặc định...", false)
+                    return@withContext runDownloadAttempt(
+                        context = context,
+                        downloadUrl = initialDownloadUrl,
+                        isDirectStream = true,
+                        useAria2cForAttempt = false,
+                        title = title,
+                        config = config,
+                        globalPrefs = globalPrefs,
+                        outputDir = outputDir,
+                        tempDir = tempDir,
+                        outputPrefix = outputPrefix,
+                        configuredTemplate = configuredTemplate,
+                        processId = processId,
+                        onProgress = onProgress
+                    )
+                }
+            }
+
+            firstResult
+        } finally {
+            canceledProcessIds.remove(processId)
+        }
+    }
+
+    private fun runDownloadAttempt(
+        context: Context,
+        downloadUrl: String,
+        isDirectStream: Boolean,
+        useAria2cForAttempt: Boolean,
+        title: String,
+        config: DownloadConfig,
+        globalPrefs: AppPreferences,
+        outputDir: File,
+        tempDir: File,
+        outputPrefix: String,
+        configuredTemplate: String,
+        processId: String,
+        onProgress: (
+            progress: Float,
+            speed: String,
+            eta: String,
+            line: String,
+            isProcessing: Boolean
+        ) -> Unit
+    ): Result<File> {
+        val outputTemplate = buildOutputTemplate(configuredTemplate, outputPrefix, title, isDirectStream)
+
+        try {
             val request = YoutubeDLRequest(downloadUrl).apply {
                 // Core options
                 addOption("--no-playlist")
@@ -241,7 +363,9 @@ object YtDlpWrapper {
                     if (config.embedMetadata) {
                         addOption("--add-metadata")
                     }
-                    applyThumbnailAndCrop(config, globalPrefs, isAudioMode = config.type == DownloadType.AUDIO)
+                    if (!isDirectStream) {
+                        applyThumbnailAndCrop(config, globalPrefs, isAudioMode = config.type == DownloadType.AUDIO)
+                    }
                 } else {
                     when (config.type) {
                         DownloadType.IMAGE -> error("Image downloads use TikTokPhotoDownloader")
@@ -253,16 +377,20 @@ object YtDlpWrapper {
                             }
                             if (config.embedMetadata) {
                                 addOption("--add-metadata")
-                                addOption("--parse-metadata", "%(album,title)s:%(meta_album)s")
-                                addOption("--parse-metadata", "%(release_year,upload_date)s:%(meta_date)s")
+                                if (!isDirectStream) {
+                                    addOption("--parse-metadata", "%(album,title)s:%(meta_album)s")
+                                    addOption("--parse-metadata", "%(release_year,upload_date)s:%(meta_date)s")
+                                }
                             }
-                            applyThumbnailAndCrop(config, globalPrefs, isAudioMode = true)
+                            if (!isDirectStream) {
+                                applyThumbnailAndCrop(config, globalPrefs, isAudioMode = true)
+                            }
                         }
                         DownloadType.CUSTOM -> {
                             // Custom mode - relies on customArgs
                         }
                         DownloadType.VIDEO -> {
-                            if (config.directStreamUrl.isNullOrEmpty()) {
+                            if (!isDirectStream) {
                                 val resSorter = if (config.videoResolution.height > 0) "res:${config.videoResolution.height}" else ""
                                 val codecSorter = when (globalPrefs.videoCodec) {
                                     "H264" -> "vcodec:h264"
@@ -285,7 +413,9 @@ object YtDlpWrapper {
                                 addOption("--add-metadata")
                                 addOption("--no-embed-info-json")
                             }
-                            applyThumbnailAndCrop(config, globalPrefs, isAudioMode = false)
+                            if (!isDirectStream) {
+                                applyThumbnailAndCrop(config, globalPrefs, isAudioMode = false)
+                            }
                         }
                     }
                 }
@@ -299,16 +429,16 @@ object YtDlpWrapper {
                 }
 
                 // SponsorBlock integration
-                if (config.removeSponsorSegments || globalPrefs.downloadConfig.removeSponsorSegments) {
+                if (!isDirectStream && (config.removeSponsorSegments || globalPrefs.downloadConfig.removeSponsorSegments)) {
                     val categories = if (config.sponsorBlockCategories.isNotBlank()) config.sponsorBlockCategories else globalPrefs.sponsorBlockCategories
                     addOption("--sponsorblock-remove", categories.ifBlank { "sponsor,selfpromo,intro,outro" })
                 }
 
                 // Subtitles (Embed or External Files)
-                if (config.embedSubtitles) {
+                if (!isDirectStream && config.embedSubtitles) {
                     addOption("--embed-subs")
                 }
-                if (config.embedSubtitles || config.keepSubtitleFiles || globalPrefs.keepSubtitleFiles) {
+                if (!isDirectStream && (config.embedSubtitles || config.keepSubtitleFiles || globalPrefs.keepSubtitleFiles)) {
                     addOption("--write-subs")
                     if (globalPrefs.autoGeneratedSubs) addOption("--write-auto-subs")
                     addOption("--sub-langs", globalPrefs.subLangs.ifBlank { "all" })
@@ -321,19 +451,23 @@ object YtDlpWrapper {
                 }
 
                 // Download Archive (Seal)
-                if (config.useDownloadArchive || globalPrefs.useDownloadArchive) {
+                if (!isDirectStream && (config.useDownloadArchive || globalPrefs.useDownloadArchive)) {
                     val archiveFile = File(context.filesDir, "download_archive.txt")
                     addOption("--download-archive", archiveFile.absolutePath)
                 }
 
                 // Cookies support
-                resolveCookieFile(context, config.cookiesFilePath ?: globalPrefs.downloadConfig.cookiesFilePath)?.let {
-                    addOption("--cookies", it.absolutePath)
+                if (!isDirectStream) {
+                    resolveCookieFile(context, config.cookiesFilePath ?: globalPrefs.downloadConfig.cookiesFilePath)?.let {
+                        addOption("--cookies", it.absolutePath)
+                    }
                 }
 
                 if (globalPrefs.forceIpv4) addOption("-4")
                 if (globalPrefs.proxyUrl.isNotBlank()) addOption("--proxy", globalPrefs.proxyUrl)
-                if (globalPrefs.extractorArgs.isNotBlank()) addOption("--extractor-args", globalPrefs.extractorArgs)
+                if (!isDirectStream && globalPrefs.extractorArgs.isNotBlank()) {
+                    addOption("--extractor-args", globalPrefs.extractorArgs)
+                }
                 if (globalPrefs.rateLimit.isNotBlank()) addOption("--limit-rate", globalPrefs.rateLimit)
                 if (globalPrefs.overwriteExisting) addOption("--force-overwrites") else addOption("--no-overwrites")
                 if (globalPrefs.verboseLogging) addOption("--verbose")
@@ -347,7 +481,7 @@ object YtDlpWrapper {
                 // streams (the usual YouTube video/audio formats), so applying it globally
                 // leaves the UI without usable progress. Use it only for direct HTTP/FTP files
                 // and let yt-dlp download fragmented streams with its native progress reporter.
-                if (config.useAria2c) {
+                if (useAria2cForAttempt) {
                     try {
                         addOption("--downloader", "http,https,ftp,ftps:libaria2c.so")
                         addOption(
@@ -445,11 +579,13 @@ object YtDlpWrapper {
             }
 
             val completedFile = findTaskOutput(outputDir, outputPrefix)
-            if (completedFile != null) {
+            return if (completedFile != null) {
                 Result.success(removeTaskPrefix(completedFile, outputPrefix, globalPrefs.overwriteExisting))
             } else {
                 Result.failure(IllegalStateException("yt-dlp kết thúc nhưng không tạo được file cho '$title'"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "YoutubeDL.execute caught exception: ${e.message}, checking this task's output...")
 
@@ -459,12 +595,32 @@ object YtDlpWrapper {
             if (completedFile != null) {
                 val finalFile = removeTaskPrefix(completedFile, outputPrefix, globalPrefs.overwriteExisting)
                 Log.i(TAG, "Completed file found despite exception: ${finalFile.name}")
-                return@withContext Result.success(finalFile)
+                return Result.success(finalFile)
             }
 
             Log.e(TAG, "Download execution truly failed: ${e.message}", e)
-            Result.failure(e)
+            return Result.failure(e)
         }
+    }
+
+    internal fun buildOutputTemplate(
+        configuredTemplate: String,
+        outputPrefix: String,
+        title: String,
+        isDirectStream: Boolean
+    ): String {
+        if (!isDirectStream) return addTaskPrefix(configuredTemplate, outputPrefix)
+        val safeTitle = title
+            .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
+            .replace(Regex("\\s+"), " ")
+            .trim(' ', '.')
+            .take(120)
+            .ifBlank { "Media" }
+        val escapedTitle = safeTitle.replace("%", "%%")
+        val separatorIndex = maxOf(configuredTemplate.lastIndexOf('/'), configuredTemplate.lastIndexOf('\\'))
+        val rawDirPrefix = if (separatorIndex >= 0) configuredTemplate.substring(0, separatorIndex + 1) else ""
+        val staticDirPrefix = if (rawDirPrefix.contains("%(")) "" else rawDirPrefix
+        return "${staticDirPrefix}${outputPrefix}${escapedTitle}.%(ext)s"
     }
 
     private fun findTaskOutput(
@@ -559,21 +715,38 @@ object YtDlpWrapper {
             return config.copy(directStreamUrl = null)
         }
 
-        val requiresYtDlpExtraction = (config.type == DownloadType.VIDEO && config.videoResolution != VideoResolution.BEST) ||
-            config.removeSponsorSegments ||
-            config.embedSubtitles ||
-            !config.clipSectionStart.isNullOrBlank() ||
-            !config.clipSectionEnd.isNullOrBlank()
+        if (config.type == DownloadType.CUSTOM) {
+            return config.copy(directStreamUrl = null)
+        }
+
+        val directUrl = if (config.type == DownloadType.AUDIO) {
+            details.directAudioUrl?.takeIf { it.isNotBlank() }
+                ?: details.directDownloadUrl?.takeIf { it.isNotBlank() }
+        } else {
+            val sdUrl = if (config.videoResolution in listOf(VideoResolution.RES_720P, VideoResolution.RES_480P, VideoResolution.RES_360P)) {
+                details.formats.find { it.formatId == "direct_tiktok_sd" && !it.directUrl.isNullOrBlank() }?.directUrl
+            } else {
+                null
+            }
+            sdUrl ?: details.directDownloadUrl?.takeIf { it.isNotBlank() }
+        } ?: return config.copy(directStreamUrl = null)
+
+        val isTikTok = UrlParser.detectPlatform(details.originalUrl) == UrlParser.Platform.TIKTOK
+        val hasRealYtDlpFormats = details.formats.any { fmt ->
+            SYNTHETIC_DIRECT_PREFIXES.none { fmt.formatId.startsWith(it) }
+        }
+        val requiresYtDlpExtraction = !isTikTok && hasRealYtDlpFormats && (
+            (config.type == DownloadType.VIDEO && config.videoResolution != VideoResolution.BEST) ||
+                config.embedSubtitles ||
+                config.removeSponsorSegments ||
+                !config.clipSectionStart.isNullOrBlank() ||
+                !config.clipSectionEnd.isNullOrBlank()
+            )
 
         if (requiresYtDlpExtraction) {
             return config.copy(directStreamUrl = null)
         }
 
-        val directUrl = if (config.type == DownloadType.AUDIO && !details.directAudioUrl.isNullOrEmpty()) {
-            details.directAudioUrl
-        } else {
-            details.directDownloadUrl
-        }
         return config.copy(directStreamUrl = directUrl)
     }
 
@@ -662,6 +835,7 @@ object YtDlpWrapper {
             contains("[FFmpeg]")
 
     fun cancel(processId: String) {
+        canceledProcessIds.add(processId)
         try {
             YoutubeDL.getInstance().destroyProcessById(processId)
         } catch (e: Exception) {
